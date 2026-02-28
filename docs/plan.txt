@@ -1,0 +1,6 @@
+Step 1: load/prepare data
+Step 2: create bandits environment (offline, following Li et al. (2010) work)
+Step 3: implement various algorithms to evlauate empirically (get base first, then create subclasses based on the base)
+Step 4: run algorithms on dataset
+Step 5: evaluate and analyze performance of all
+Step 6: sensitivty analysis (parameter and hyperparameter tuning to understand affect on speed, convergence, etc.)
