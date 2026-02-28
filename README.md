@@ -1,1 +1,1 @@
-# DSC-291-Ma-Sequential-Decision-Making-Project
+# DSC-291-Ma-Sequential-Decision-Making-Final-Project
