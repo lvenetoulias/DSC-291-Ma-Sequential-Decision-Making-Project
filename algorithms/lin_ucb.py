@@ -147,7 +147,7 @@ class LinUCB(BaseBandit):
         """Initialise per-arm parameter arrays."""
         d = self.context_dim
         A_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b     = [np.zeros(d) for _ in range(self.n_arms)]
+        b = [np.zeros(d) for _ in range(self.n_arms)]
         theta = [np.zeros(d) for _ in range(self.n_arms)]
         return A_inv, b, theta
 
@@ -164,7 +164,7 @@ class LinUCB(BaseBandit):
         A_inv = self._A_inv[arm]
 
         exploit = float(x @ theta)
-        bonus   = self.alpha * float(np.sqrt(x @ A_inv @ x))
+        bonus = self.alpha * float(np.sqrt(x @ A_inv @ x))
         return exploit + bonus
 
     @staticmethod
@@ -178,7 +178,7 @@ class LinUCB(BaseBandit):
 
         Cost: O(d^2) matrix-vector products instead of O(d^3) inversion.
         """
-        Ax    = A_inv @ x
+        Ax = A_inv @ x
         denom = 1.0 + float(x @ Ax)
         return A_inv - np.outer(Ax, Ax) / denom
 
@@ -230,9 +230,9 @@ if __name__ == "__main__":
     print("Running LinUCB smoke test...\n")
 
     rng = np.random.default_rng(0)
-    n_arms      = 5
+    n_arms = 5
     context_dim = 8
-    n_steps     = 600
+    n_steps = 600
 
     # True reward weights per arm — arm 3 is best in this synthetic setting
     true_theta = rng.standard_normal((n_arms, context_dim))
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     agent = LinUCB(n_arms, context_dim, alpha=1.0, lambda_reg=1.0, seed=0)
     print(agent)
 
-    total_reward   = 0.0
+    total_reward = 0.0
     exploit_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):

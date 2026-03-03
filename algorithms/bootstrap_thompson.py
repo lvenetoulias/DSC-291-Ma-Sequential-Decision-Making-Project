@@ -93,7 +93,7 @@ class BootstrapThompson(BaseBandit):
 
         # Set initial state
         self.n_particles = n_particles
-        self.lambda_reg  = lambda_reg
+        self.lambda_reg = lambda_reg
 
         # Per-particle, per-arm parameters.
         # Shape convention:  _A_inv[j][a]  is a (d x d) matrix
@@ -157,7 +157,7 @@ class BootstrapThompson(BaseBandit):
             # observation w times); we apply them sequentially
             for _ in range(w):
                 self._A_inv[j][arm] = self._sherman_morrison(self._A_inv[j][arm], x)
-                self._b[j][arm]    += reward * x
+                self._b[j][arm] += reward * x
 
             # Recompute weight estimate for this particle / arm
             self._theta[j][arm] = self._A_inv[j][arm] @ self._b[j][arm]
@@ -266,12 +266,12 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts   = np.zeros(n_arms, dtype=int)
+    arm_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen  = agent.select_arm(context)
-        p       = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
+        chosen = agent.select_arm(context)
+        p = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
         reward  = float(rng.random() < p)
         agent.update(chosen, reward, context)
         total_reward += reward
@@ -288,18 +288,18 @@ if __name__ == "__main__":
     assert score_dist.shape == (10,), "Wrong score distribution shape."
     print(f"\n  Score distribution arm 0 (std across particles): {score_dist.std():.4f}")
     assert score_dist.std() >= 0.0, "Particle score std should be non-negative."
-    print(f"  Particle diversity check ✓")
+    print(f"  Particle diversity check")
 
     # Particle scores shape check
     all_scores = agent.particle_scores(test_ctx)
     assert all_scores.shape == (10, n_arms), f"Wrong shape: {all_scores.shape}"
-    print(f"  Particle scores shape: {all_scores.shape} ✓")
+    print(f"  Particle scores shape: {all_scores.shape}")
 
     # Reset check
     agent.reset()
     assert agent._t == 0
     score_after_reset = agent.arm_score_distribution(test_ctx, arm=0)
     assert np.allclose(score_after_reset, 0.0), "Scores should be 0 after reset."
-    print(f"  Reset check: all scores zero after reset ✓")
+    print(f"  Reset check: all scores zero after reset")
 
     print("\nSmoke test passed.")

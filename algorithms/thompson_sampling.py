@@ -75,8 +75,8 @@ class ThompsonSampling(BaseBandit):
         if lambda_reg <= 0:
             raise ValueError(f"lambda_reg must be positive, got {lambda_reg}.")
 
-        self.sigma      = sigma
-        self.sigma2     = sigma ** 2
+        self.sigma = sigma
+        self.sigma2 = sigma ** 2
         self.lambda_reg = lambda_reg
 
         # Per-arm posterior parameters (disjoint model).
@@ -151,10 +151,10 @@ class ThompsonSampling(BaseBandit):
 
     def _init_params(self):
         """Initialise per-arm posterior parameter arrays."""
-        d     = self.context_dim
+        d = self.context_dim
         V_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b     = [np.zeros(d) for _ in range(self.n_arms)]
-        mu    = [np.zeros(d) for _ in range(self.n_arms)]
+        b = [np.zeros(d) for _ in range(self.n_arms)]
+        mu = [np.zeros(d) for _ in range(self.n_arms)]
         return V_inv, b, mu
 
     def _sample_weights(self, arm: int) -> np.ndarray:
@@ -171,12 +171,12 @@ class ThompsonSampling(BaseBandit):
         -------
         theta_tilde : np.ndarray of shape (context_dim,)
         """
-        mu    = self._mu[arm]
-        cov   = self.sigma2 * self._V_inv[arm]
+        mu = self._mu[arm]
+        cov = self.sigma2 * self._V_inv[arm]
 
         try:
-            L     = np.linalg.cholesky(cov)
-            z     = self.rng.standard_normal(self.context_dim)
+            L = np.linalg.cholesky(cov)
+            z = self.rng.standard_normal(self.context_dim)
             return mu + L @ z
         except np.linalg.LinAlgError:
             # Fallback: add a small jitter and retry
@@ -200,7 +200,7 @@ class ThompsonSampling(BaseBandit):
 
             V_inv_new = V_inv - (V_inv x x^T V_inv) / (1 + x^T V_inv x)
         """
-        Vx    = V_inv @ x
+        Vx = V_inv @ x
         denom = 1.0 + float(x @ Vx)
         return V_inv - np.outer(Vx, Vx) / denom
 
@@ -251,9 +251,9 @@ if __name__ == "__main__":
     print("Running ThompsonSampling smoke test...\n")
 
     rng = np.random.default_rng(1)
-    n_arms      = 5
+    n_arms = 5
     context_dim = 8
-    n_steps     = 600
+    n_steps = 600
 
     # True reward weights per arm — arm 3 is best (same setup as LinUCB test)
     true_theta = rng.standard_normal((n_arms, context_dim))
@@ -262,14 +262,14 @@ if __name__ == "__main__":
     agent = ThompsonSampling(n_arms, context_dim, sigma=1.0, lambda_reg=1.0, seed=1)
     print(agent)
 
-    total_reward   = 0.0
-    arm_counts     = np.zeros(n_arms, dtype=int)
+    total_reward = 0.0
+    arm_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen  = agent.select_arm(context)
+        chosen = agent.select_arm(context)
 
-        p      = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
+        p = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
         reward = float(rng.random() < p)
 
         agent.update(chosen, reward, context)
@@ -295,13 +295,13 @@ if __name__ == "__main__":
     # Check Cholesky sampling returns correct shape
     sample = agent._sample_weights(0)
     assert sample.shape == (context_dim,), f"Expected shape ({context_dim},), got {sample.shape}"
-    print(f"\n  Sampled weight vector shape : {sample.shape} ✓")
+    print(f"\n  Sampled weight vector shape : {sample.shape}")
 
     # Check reset restores initial state
     agent.reset()
     assert agent._t == 0, "Step counter should be 0 after reset."
     var_reset = agent.posterior_variance(0, test_ctx)
     assert var_reset > var_after, "Posterior variance should be larger after reset."
-    print(f"  Posterior variance after reset : {var_reset:.6f} (restored) ✓")
+    print(f"  Posterior variance after reset : {var_reset:.6f} (restored)")
 
     print("\nSmoke test passed.")

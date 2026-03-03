@@ -182,7 +182,7 @@ class LogisticUCB(BaseBandit):
     # ------------------------------------------------------------------
     def _init_params(self):
         """Initialise per-arm parameter arrays."""
-        d     = self.context_dim
+        d = self.context_dim
         theta = [np.zeros(d) for _ in range(self.n_arms)]
         H_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
         return theta, H_inv
@@ -196,9 +196,9 @@ class LogisticUCB(BaseBandit):
         """
         UCB score for a single arm: sigma(x^T theta_a)  +  alpha * sqrt(x^T H_a^{-1} x)
         """
-        logit   = float(x @ self._theta[arm])
+        logit = float(x @ self._theta[arm])
         exploit = self._sigmoid(logit)
-        bonus   = self.alpha * float(np.sqrt(np.clip(x @ self._H_inv[arm] @ x, 0, None)))
+        bonus = self.alpha * float(np.sqrt(np.clip(x @ self._H_inv[arm] @ x, 0, None)))
         return exploit + bonus
 
     @staticmethod
@@ -212,7 +212,7 @@ class LogisticUCB(BaseBandit):
         Benefit is not having to recompute full A_inv from stratch at every update step, keeping the
         cost per-step at O(d^2) instead of O(d^3).
         """
-        Ax    = A_inv @ x
+        Ax = A_inv @ x
         denom = 1.0 + float(x @ Ax)
         return A_inv - np.outer(Ax, Ax) / denom
 
@@ -262,11 +262,11 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts   = np.zeros(n_arms, dtype=int)
+    arm_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen  = agent.select_arm(context)
+        chosen = agent.select_arm(context)
 
         # Binary reward via logistic model
         p = 1.0 / (1.0 + np.exp(-float(context @ true_theta[chosen])))
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     for a in range(n_arms):
         p = agent.predicted_prob(a, test_ctx)
         assert 0.0 <= p <= 1.0, f"Predicted prob out of range: {p}"
-    print(f"\n  All predicted probabilities in [0,1] ✓")
+    print(f"\n  All predicted probabilities in [0,1]")
 
     # Exploration bonus should decrease after many arm-0 updates
     bonus_before = agent.exploration_bonus(0, test_ctx)
@@ -295,6 +295,6 @@ if __name__ == "__main__":
     bonus_after = agent.exploration_bonus(0, test_ctx)
     assert bonus_after < bonus_before, "Bonus should shrink with more data."
     print(f"  Exploration bonus arm 0 before/after 200 updates: "
-          f"{bonus_before:.4f} → {bonus_after:.4f} ✓")
+          f"{bonus_before:.4f} → {bonus_after:.4f}")
 
     print("\nSmoke test passed.")

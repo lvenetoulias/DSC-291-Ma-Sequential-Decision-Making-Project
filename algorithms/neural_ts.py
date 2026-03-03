@@ -169,9 +169,9 @@ class NeuralTS(BaseBandit):
         torch.manual_seed(seed)
 
         # Shared embedding network (independent of NeuralUCB's network)
-        self.net       = _EmbeddingNet(context_dim, hidden_dim, d_emb)
+        self.net = _EmbeddingNet(context_dim, hidden_dim, d_emb)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr_nn)
-        self.loss_fn   = nn.MSELoss()
+        self.loss_fn = nn.MSELoss()
 
         # Per-arm Bayesian linear head parameters.
         # A_inv[a] : (d_emb x d_emb) — inverse design matrix
@@ -180,11 +180,11 @@ class NeuralTS(BaseBandit):
         self._A_inv, self._b, self._mu = self._init_linear_params()
 
         # Replay buffer for network retraining
-        self._buffer_x   = []
+        self._buffer_x = []
         self._buffer_arm = []
-        self._buffer_r   = []
+        self._buffer_r = []
 
-        self._in_warmup  = True
+        self._in_warmup = True
 
     # ------------------------------------------------------------------
     # Core interface
@@ -215,9 +215,7 @@ class NeuralTS(BaseBandit):
             return int(self.rng.integers(0, self.n_arms))
 
         phi = self._embed(context)      # shape (d_emb,)
-        scores = np.array([
-            self._sample_score(a, phi) for a in range(self.n_arms)
-        ])
+        scores = np.array([self._sample_score(a, phi) for a in range(self.n_arms)])
         return int(np.argmax(scores))
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
@@ -261,12 +259,12 @@ class NeuralTS(BaseBandit):
         """Reset network weights, linear heads, replay buffer, and RNG."""
         super()._base_reset()
         torch.manual_seed(self.seed)
-        self.net       = _EmbeddingNet(self.context_dim, self.hidden_dim, self.d_emb)
+        self.net = _EmbeddingNet(self.context_dim, self.hidden_dim, self.d_emb)
         self.optimizer = optim.Adam(self.net.parameters(), lr=self.lr_nn)
         self._A_inv, self._b, self._mu = self._init_linear_params()
-        self._buffer_x   = []
+        self._buffer_x = []
         self._buffer_arm = []
-        self._buffer_r   = []
+        self._buffer_r = []
         self._in_warmup  = True
 
     # ------------------------------------------------------------------
@@ -274,10 +272,10 @@ class NeuralTS(BaseBandit):
     # ------------------------------------------------------------------
     def _init_linear_params(self):
         """Initialise per-arm Bayesian linear head parameters."""
-        d     = self.d_emb
+        d = self.d_emb
         A_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b     = [np.zeros(d) for _ in range(self.n_arms)]
-        mu    = [np.zeros(d) for _ in range(self.n_arms)]
+        b = [np.zeros(d) for _ in range(self.n_arms)]
+        mu = [np.zeros(d) for _ in range(self.n_arms)]
         return A_inv, b, mu
 
     def _embed(self, context: np.ndarray) -> np.ndarray:
@@ -323,8 +321,8 @@ class NeuralTS(BaseBandit):
     def _update_linear_head(self, arm: int, reward: float, phi: np.ndarray) -> None:
         """Incremental Sherman-Morrison update of the Bayesian linear head."""
         self._A_inv[arm] = self._sherman_morrison(self._A_inv[arm], phi)
-        self._b[arm]    += reward * phi
-        self._mu[arm]    = self._A_inv[arm] @ self._b[arm]
+        self._b[arm] += reward * phi
+        self._mu[arm] = self._A_inv[arm] @ self._b[arm]
 
     def _retrain_network(self) -> None:
         """Retrain the embedding network on the full replay buffer."""
@@ -438,7 +436,7 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts   = np.zeros(n_arms, dtype=int)
+    arm_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
