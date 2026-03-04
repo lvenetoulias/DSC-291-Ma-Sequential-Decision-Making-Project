@@ -298,6 +298,20 @@ def filter_sprarse_users(df: pd.DataFrame, min_ratings=20) -> pd.DataFrame:
     df = df.copy()
     return df.groupby("user_id").filter(lambda x: len(x) >= min_ratings)
 
+def filter_top_arms(df: pd.DataFrame, max_arms: int = 50) -> pd.DataFrame:
+    """
+    Restrict to the top-K most frequently rated movies.
+    This directly increases offline replay match rate by concentrating
+    the arm pool on items that appear often in the logged stream.
+    """
+    top_movies = (
+        df["movie_id"]
+        .value_counts()
+        .head(max_arms)
+        .index
+    )
+    return df[df["movie_id"].isin(top_movies)].reset_index(drop=True)
+
 
 
 def _genre_col(genre: str) -> str:
@@ -413,7 +427,7 @@ def train_test_split_temporal(df: pd.DataFrame, test_fraction: float = 0.2,) -> 
 # ---------------------------------------------------------------------------
 def load_and_prepare(ratings_path: str, movies_path: str, tags_path: str = None,       # reserved for future tag-based features
     context_method: str = "raw", pca_dim: int = 20, reward_threshold: float = 4.0, test_fraction: float = 0.2,
-    verbose: bool = True,) -> tuple[pd.DataFrame, pd.DataFrame, int]:
+    max_arms: int=50, verbose: bool = True,) -> tuple[pd.DataFrame, pd.DataFrame, int]:
     """
     Function to perform entire data loading pipeline. The function loads the raw files, merges each part
     together, reconstructs the reward to be binary, builds the context vectors, and temporally splits the
@@ -426,9 +440,9 @@ def load_and_prepare(ratings_path: str, movies_path: str, tags_path: str = None,
     * tags_path: path to tags.dat (unused for now; reserved)
     * context_method: 'raw' or 'pca'
     * pca_dim: PCA target dimension (only used when context_method='pca')
-    reward_threshold : rating threshold for binary reward (default 4.0)
-    test_fraction    : fraction of data (by time) held out for test
-    verbose          : if True, print dataset statistics
+    * reward_threshold: rating threshold for binary reward (default 4.0)
+    * test_fraction: fraction of data (by time) held out for test
+    * verbose: if True, print dataset statistics
 
     Returns
     -------
@@ -449,6 +463,13 @@ def load_and_prepare(ratings_path: str, movies_path: str, tags_path: str = None,
     df = merge_dataset(ratings, movies)
     df = binarize_rewards(df, threshold=reward_threshold)
     df = filter_sprarse_users(df)
+    if max_arms is not None:
+        if verbose:
+            print(f"  Filtering to top {max_arms} arms by popularity...")
+        df = filter_top_arms(df, max_arms=max_arms)
+        if verbose:
+            print(f"  Post-filter interactions: {len(df):,} | "
+                f"Arms: {df['movie_id'].nunique()}")
 
     if verbose:
         pos_rate = df["reward"].mean()

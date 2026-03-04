@@ -123,7 +123,8 @@ class NeuralUCB(BaseBandit):
 
     def __init__(self, n_arms: int, context_dim: int, d_emb: int = 32, hidden_dim: int = 64,
         alpha: float = 1.0, lambda_reg: float = 1.0, lr_nn: float = 1e-3, train_every: int = 50,
-        n_epochs: int = 10, warmup_steps: int = 100, batch_size: int = 32, seed: int = 42,):
+        n_epochs: int = 10, warmup_steps: int = 100, batch_size: int = 32, max_buffer_size: int = 5000,
+        seed: int = 42,):
 
         # Call superconstructor
         _check_torch()
@@ -136,29 +137,30 @@ class NeuralUCB(BaseBandit):
 
         # Set initial state
         self.d_emb = d_emb
-        self.hidden_dim = hidden_dim
+        self.hidden_dim   = hidden_dim
         self.alpha = alpha
         self.lambda_reg   = lambda_reg
         self.lr_nn = lr_nn
-        self.train_every = train_every
+        self.train_every  = train_every
         self.n_epochs = n_epochs
         self.warmup_steps = warmup_steps
-        self.batch_size = batch_size
+        self.batch_size   = batch_size
+        self.max_buffer_size = max_buffer_size
 
         torch.manual_seed(seed)
 
         # Shared embedding network
-        self.net = _EmbeddingNet(context_dim, hidden_dim, d_emb)
+        self.net       = _EmbeddingNet(context_dim, hidden_dim, d_emb)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr_nn)
-        self.loss_fn = nn.MSELoss()
+        self.loss_fn   = nn.MSELoss()
 
         # Per-arm LinUCB head applied to embeddings
         self._A_inv, self._b, self._theta_lin = self._init_linear_params()
 
         # Replay buffer: store all matched (context, arm, reward) for retraining
-        self._buffer_x = []   # raw context vectors
+        self._buffer_x   = []   # raw context vectors
         self._buffer_arm = []   # arm indices
-        self._buffer_r = []   # rewards
+        self._buffer_r   = []   # rewards
 
         # Track whether we are still in warmup
         self._in_warmup = True
@@ -195,6 +197,12 @@ class NeuralUCB(BaseBandit):
         self._buffer_arm.append(arm)
         self._buffer_r.append(reward)
 
+        # Cap buffer to most recent max_buffer_size entries
+        if len(self._buffer_x) > self.max_buffer_size:
+            self._buffer_x   = self._buffer_x[-self.max_buffer_size:]
+            self._buffer_arm = self._buffer_arm[-self.max_buffer_size:]
+            self._buffer_r   = self._buffer_r[-self.max_buffer_size:]
+
         # End warmup after warmup_steps matched updates
         if self._in_warmup and self._t >= self.warmup_steps:
             self._in_warmup = False
@@ -216,12 +224,12 @@ class NeuralUCB(BaseBandit):
         """Reset network, linear heads, buffer, and RNG."""
         super()._base_reset()
         torch.manual_seed(self.seed)
-        self.net = _EmbeddingNet(self.context_dim, self.hidden_dim, self.d_emb)
+        self.net       = _EmbeddingNet(self.context_dim, self.hidden_dim, self.d_emb)
         self.optimizer = optim.Adam(self.net.parameters(), lr=self.lr_nn)
         self._A_inv, self._b, self._theta_lin = self._init_linear_params()
-        self._buffer_x = []
+        self._buffer_x   = []
         self._buffer_arm = []
-        self._buffer_r = []
+        self._buffer_r   = []
         self._in_warmup  = True
 
     # ------------------------------------------------------------------
@@ -229,8 +237,8 @@ class NeuralUCB(BaseBandit):
     # ------------------------------------------------------------------
     def _init_linear_params(self):
         d = self.d_emb
-        A_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b = [np.zeros(d) for _ in range(self.n_arms)]
+        A_inv     = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
+        b         = [np.zeros(d) for _ in range(self.n_arms)]
         theta_lin = [np.zeros(d) for _ in range(self.n_arms)]
         return A_inv, b, theta_lin
 
@@ -356,13 +364,13 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts = np.zeros(n_arms, dtype=int)
+    arm_counts   = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen = agent.select_arm(context)
-        p = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
-        reward = float(rng.random() < p)
+        chosen  = agent.select_arm(context)
+        p       = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
+        reward  = float(rng.random() < p)
         agent.update(chosen, reward, context)
         total_reward += reward
         arm_counts[chosen] += 1
@@ -374,7 +382,7 @@ if __name__ == "__main__":
 
     # Embedding shape check
     test_ctx = rng.standard_normal(context_dim)
-    emb = agent.embedding(test_ctx)
+    emb      = agent.embedding(test_ctx)
     assert emb.shape == (16,), f"Expected embedding shape (16,), got {emb.shape}"
     print(f"  Embedding shape : {emb.shape}")
 

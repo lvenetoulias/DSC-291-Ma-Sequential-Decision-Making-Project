@@ -138,6 +138,7 @@ SPLIT_CONFIG = {
     "reward_threshold": 4.0, # rating >= threshold → reward = 1
     "context_method":   "raw",
     "min_user_ratings": 20,  # filter users with fewer interactions
+    "max_arms": 50,          # filter movies to have most common movies
 }
 
 # --- Evaluation settings ---
@@ -254,6 +255,7 @@ def phase1_load_data(args):
         reward_threshold= SPLIT_CONFIG["reward_threshold"],
         # test_fraction here gives us the combined val + test held-out portion
         test_fraction   = SPLIT_CONFIG["val_fraction"] + SPLIT_CONFIG["test_fraction"],
+        max_arms        = SPLIT_CONFIG["max_arms"],
         verbose         = True,
     )
 
@@ -536,8 +538,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "alpha":       _p("LinUCB", "alpha",      1.0),
-                "lambda_reg":  _p("LinUCB", "lambda_reg", 1.0),
+                "alpha":       _p("LinUCB", "alpha",      2.0),
+                "lambda_reg":  _p("LinUCB", "lambda_reg", 0.25),
             },
         })
 
@@ -548,8 +550,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "sigma":       _p("ThompsonSampling", "sigma",      1.0),
-                "lambda_reg":  _p("ThompsonSampling", "lambda_reg", 1.0),
+                "sigma":       _p("ThompsonSampling", "sigma",      2.0),
+                "lambda_reg":  _p("ThompsonSampling", "lambda_reg", 0.25),
             },
         })
 
@@ -560,8 +562,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "alpha":       _p("LogisticUCB", "alpha",      1.0),
-                "lambda_reg":  _p("LogisticUCB", "lambda_reg", 1.0),
+                "alpha":       _p("LogisticUCB", "alpha",      2.0),
+                "lambda_reg":  _p("LogisticUCB", "lambda_reg", 0.25),
             },
         })
 
@@ -587,10 +589,13 @@ def phase3_main_comparison(
                     "context_dim":   context_dim,
                     "alpha":         _p("NeuralUCB", "alpha",      1.0),
                     "lambda_reg":    _p("NeuralUCB", "lambda_reg", 1.0),
-                    "d_emb":         32,
-                    "hidden_dim":    64,
-                    "warmup_steps":  200,
-                    "train_every":   100,
+                    "d_emb":         16,    # reduced from 32
+                    "hidden_dim":    32,    # reduced from 64
+                    "warmup_steps":  50,    # reduced from 200
+                    "train_every":   200,   # retrain less frequently
+                    "n_epochs":      5,     # fewer epochs per retrain
+                    "batch_size":    64,
+                    "max_buffer_size": 2000,
                 },
             })
 
@@ -603,10 +608,10 @@ def phase3_main_comparison(
                     "context_dim":   context_dim,
                     "sigma":         _p("NeuralTS", "sigma",      1.0),
                     "lambda_reg":    _p("NeuralTS", "lambda_reg", 1.0),
-                    "d_emb":         32,
-                    "hidden_dim":    64,
-                    "warmup_steps":  200,
-                    "train_every":   100,
+                    "d_emb":         16,
+                    "hidden_dim":    32,
+                    "warmup_steps":  50,
+                    "train_every":   200,
                 },
             })
 
