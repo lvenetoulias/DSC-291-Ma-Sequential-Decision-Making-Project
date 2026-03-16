@@ -39,7 +39,7 @@ import numpy as np
 # Generic single-hyperparameter sweep
 # ---------------------------------------------------------------------------
 def sweep_hyperparameter(agent_class: type, df: pd.DataFrame, param_name: str, param_values: list, fixed_kwargs: dict,
-    n_trials: int = 3, window: int = 500, env_seed: int = 42, verbose: bool = True,) -> dict:
+    n_trials: int = 3, window: int = 500, env_seed: int = 42, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep one hyperparameter of an algorithm over a list of candidate values and record final
     cumulative regret and reward rate at each value. For each candidate value, n_trials independent trials
@@ -71,7 +71,7 @@ def sweep_hyperparameter(agent_class: type, df: pd.DataFrame, param_name: str, p
         best_reward_value: the param value with the highest mean reward rate
         agent_name: str
     """
-    env = OfflineBanditEnv(df, seed=env_seed)
+    env = OfflineBanditEnv(df, seed=env_seed, candidate_size=candidate_size)
 
     mean_regrets = []
     std_regrets = []
@@ -103,7 +103,7 @@ def sweep_hyperparameter(agent_class: type, df: pd.DataFrame, param_name: str, p
 
         if verbose:
             print(f"regret={agg['mean_final_regret']:.1f} ± {agg['std_final_regret']:.1f} | "
-                  f"reward={mean_rewards[-1]:.3f}")
+                  f"reward={mean_rewards[-1]:.4f}")
 
     # Identify best values (lowest regret and highest reward)
     best_idx = int(np.argmin(mean_regrets))
@@ -126,7 +126,7 @@ def sweep_hyperparameter(agent_class: type, df: pd.DataFrame, param_name: str, p
 # Per-algorithm hyperparameter sweep definitions
 # ---------------------------------------------------------------------------
 def sweep_linucb(df: pd.DataFrame, n_arms: int, context_dim: int, alpha_values: list   = None,
-    lambda_values: list  = None, n_trials: int = 10, verbose: bool = True,) -> dict:
+    lambda_values: list  = None, n_trials: int = 10, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep alpha and lambda_reg for LinUCB. Alpha controls exploration bonus width, and lambda_reg
     controls the regularization strength. The function returns a dictionary with keys 'alpha' and 'lambda_reg',
@@ -152,13 +152,13 @@ def sweep_linucb(df: pd.DataFrame, n_arms: int, context_dim: int, alpha_values: 
         print("Sweeping LinUCB lambda_reg...")
     # Use best alpha found above when sweeping lambda
     lambda_sweep = sweep_hyperparameter(LinUCB, df, "lambda_reg", lambda_values, fixed_kwargs={"n_arms": n_arms,
-        "context_dim": context_dim, "alpha": alpha_sweep["best_value"]}, n_trials=n_trials, verbose=verbose,)
+        "context_dim": context_dim, "alpha": alpha_sweep["best_value"]}, n_trials=n_trials, candidate_size=candidate_size, verbose=verbose,)
     
     return {"alpha": alpha_sweep, "lambda_reg": lambda_sweep}
 
 
 def sweep_thompson_sampling(df: pd.DataFrame, n_arms: int, context_dim: int, sigma_values: list  = None,
-    lambda_values: list = None, n_trials: int = 3, verbose: bool = True,) -> dict:
+    lambda_values: list = None, n_trials: int = 3, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep sigma and lambda_reg for ThompsonSampling. Sigma controls the posterior sampling
     scale (the explortation intensity), and returns a dictionary with keys 'sigma' and 'lambda_reg', each
@@ -191,7 +191,7 @@ def sweep_thompson_sampling(df: pd.DataFrame, n_arms: int, context_dim: int, sig
 
 
 def sweep_epsilon_greedy(df: pd.DataFrame, n_arms: int, context_dim: int, epsilon_values: list = None,
-    n_trials: int = 3, verbose: bool = True,) -> dict:
+    n_trials: int = 3, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep epsilon for Epsilon Greedy algorithm for both fixed and decay schedules. Function
     returns a dictionary with keys 'fixed' and 'decay', the outputs of `sweep_hyperparameters()` for both
@@ -218,14 +218,14 @@ def sweep_epsilon_greedy(df: pd.DataFrame, n_arms: int, context_dim: int, epsilo
         print("Sweeping EpsilonGreedy epsilon (decay schedule)...")
     decay_sweep = sweep_hyperparameter(
         EpsilonGreedy, df, "epsilon", epsilon_values,
-        fixed_kwargs=base_decay, n_trials=n_trials, verbose=verbose,
+        fixed_kwargs=base_decay, n_trials=n_trials, candidate_size=candidate_size, verbose=verbose,
     )
 
     return {"fixed": fixed_sweep, "decay": decay_sweep}
 
 
 def sweep_logistic_ucb(df: pd.DataFrame, n_arms: int, context_dim: int, alpha_values: list  = None,
-    lambda_values: list = None, n_trials: int = 3, verbose: bool = True,) -> dict:
+    lambda_values: list = None, n_trials: int = 3, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep alpha and lambda_reg for LogUCB. Alpha controls exploration bonus width, and lambda_reg
     controls the regularization strength. The function returns a dictionary with keys 'alpha' and 'lambda_reg',
@@ -244,7 +244,7 @@ def sweep_logistic_ucb(df: pd.DataFrame, n_arms: int, context_dim: int, alpha_va
         print("Sweeping LogisticUCB alpha...")
     alpha_sweep = sweep_hyperparameter(
         LogisticUCB, df, "alpha", alpha_values,
-        fixed_kwargs={**base}, n_trials=n_trials, verbose=verbose,
+        fixed_kwargs={**base}, n_trials=n_trials, candidate_size=candidate_size, verbose=verbose,
     )
 
     if verbose:
@@ -253,14 +253,14 @@ def sweep_logistic_ucb(df: pd.DataFrame, n_arms: int, context_dim: int, alpha_va
         LogisticUCB, df, "lambda_reg", lambda_values,
         fixed_kwargs={"n_arms": n_arms, "context_dim": context_dim,
                       "alpha": alpha_sweep["best_value"]},
-        n_trials=n_trials, verbose=verbose,
+        n_trials=n_trials, candidate_size=candidate_size, verbose=verbose,
     )
 
     return {"alpha": alpha_sweep, "lambda_reg": lambda_sweep}
 
 
 def sweep_bootstrap_thompson(df: pd.DataFrame, n_arms: int, context_dim: int, particle_values: list = None,
-    lambda_values: list = None, n_trials: int = 3, verbose: bool = True,) -> dict:
+    lambda_values: list = None, n_trials: int = 3, candidate_size: int = None, verbose: bool = True,) -> dict:
     """
     Function to sweep sigma and lambda_reg for bootstrap Thompson sampling. Sigma controls the posterior
     sampling scale (the explortation intensity), and returns a dictionary with keys 'sigma' and 'lambda_reg',
@@ -280,7 +280,7 @@ def sweep_bootstrap_thompson(df: pd.DataFrame, n_arms: int, context_dim: int, pa
         print("Sweeping BootstrapThompson n_particles...")
     particle_sweep = sweep_hyperparameter(
         BootstrapThompson, df, "n_particles", particle_values,
-        fixed_kwargs={**base}, n_trials=n_trials, verbose=verbose,
+        fixed_kwargs={**base}, candidate_size=candidate_size, n_trials=n_trials, verbose=verbose,
     )
 
     if verbose:
@@ -397,7 +397,7 @@ def sweep_context_dimensionality(df_full: pd.DataFrame, n_arms: int, full_contex
 
             if verbose:
                 print(f"regret={agg['mean_final_regret']:.1f} | "
-                      f"reward={mean_rewards[name][-1]:.3f}")
+                      f"reward={mean_rewards[name][-1]:.4f}")
 
     return {
         "dims": dims_to_sweep,
@@ -468,7 +468,7 @@ def sweep_reward_threshold(df_raw: pd.DataFrame, n_arms: int, context_dim: int, 
         base_rate = float(df_thresh["reward"].mean())
         base_reward_rates.append(base_rate)
         if verbose:
-            print(f"    Base reward rate: {base_rate:.3f}")
+            print(f"    Base reward rate: {base_rate:.4f}")
 
         env = OfflineBanditEnv(df_thresh, seed=env_seed)
 
@@ -491,7 +491,7 @@ def sweep_reward_threshold(df_raw: pd.DataFrame, n_arms: int, context_dim: int, 
 
             if verbose:
                 print(f"    {name}: regret={agg['mean_final_regret']:.1f} | "
-                      f"reward={mean_rewards[name][-1]:.3f}")
+                      f"reward={mean_rewards[name][-1]:.4f}")
 
     return {
         "thresholds": thresholds,
@@ -593,24 +593,24 @@ if __name__ == "__main__":
 
     print("Building synthetic data for sensitivity smoke test...\n")
 
-    rng = np.random.default_rng(0)
-    n = 2000
-    n_arms = 6
-    ctx_dim = 8
+    rng      = np.random.default_rng(0)
+    n        = 2000
+    n_arms   = 6
+    ctx_dim  = 8
     arm_pool = list(range(n_arms))
 
     movie_ids = rng.choice(arm_pool, size=n)
-    rewards = np.where(movie_ids == 0,
+    rewards   = np.where(movie_ids == 0,
                          (rng.random(n) > 0.3).astype(float),
                          (rng.random(n) > 0.6).astype(float))
 
     synthetic_df = pd.DataFrame({
-        "user_id": rng.integers(1, 30, size=n),
-        "movie_id": movie_ids,
-        "rating": rng.choice([1,2,3,4,5], size=n).astype(float),
+        "user_id":   rng.integers(1, 30, size=n),
+        "movie_id":  movie_ids,
+        "rating":    rng.choice([1,2,3,4,5], size=n).astype(float),
         "timestamp": np.arange(n),
-        "reward": rewards,
-        "context": [rng.random(ctx_dim) for _ in range(n)],
+        "reward":    rewards,
+        "context":   [rng.random(ctx_dim) for _ in range(n)],
     })
 
     from algorithms.lin_ucb import LinUCB
@@ -621,10 +621,11 @@ if __name__ == "__main__":
         agent_class = LinUCB,
         df = synthetic_df,
         param_name = "alpha",
-        param_values = [0.1, 0.5, 1.0, 2.0],
-        fixed_kwargs = {"n_arms": n_arms, "context_dim": ctx_dim, "lambda_reg": 1.0},
-        n_trials = 10,
+        param_values  = [0.1, 0.5, 1.0, 2.0],
+        fixed_kwargs  = {"n_arms": n_arms, "context_dim": ctx_dim, "lambda_reg": 1.0},
+        n_trials = 5,
         window = 100,
+        candidate_size=10,
         verbose = True,
     )
 

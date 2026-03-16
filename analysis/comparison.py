@@ -1,7 +1,7 @@
 """
 analysis/compare.py
-==========
 
+==========
 
 Cross-algorithm comparison orchestration.
 
@@ -34,6 +34,8 @@ The results dictionary produced here is passed directly to visualize.py for plot
 from typing import Any
 import pandas as pd
 import numpy as np
+import gc
+import torch
 
 from .convergence import full_convergence_report_multi
 from .evaluation import run_multiple_trials, summarize_multi_trial
@@ -170,7 +172,7 @@ def build_default_config(n_arms: int, context_dim: int) -> list[dict]:
 # Core comparison runner
 # ---------------------------------------------------------------------------
 def run_comparison(df: pd.DataFrame, context_dim: int, config: list[dict] = None, n_trials: int = 10,
-    window: int = 500, env_seed: int = 42, convergence_kwargs: dict = None, verbose: bool = True,) -> dict:
+    window: int = 500, env_seed: int = 42, candidate_size: int = None, convergence_kwargs: dict = None, verbose: bool = True,) -> dict:
     """
     Function to run all algorithms in the config through identical interaction sequences and to collect
     evaluation and convergence results for each algorithm. Every algorithm is run for n_trials independent
@@ -204,7 +206,7 @@ def run_comparison(df: pd.DataFrame, context_dim: int, config: list[dict] = None
         convergence_kwargs = {}
 
     # Build the environment once; it will be reset between algorithms
-    env = OfflineBanditEnv(df, seed=env_seed)
+    env = OfflineBanditEnv(df, seed=env_seed, candidate_size=candidate_size)
 
     if config is None:
         config = build_default_config(n_arms=env.n_arms, context_dim=context_dim)
@@ -234,6 +236,13 @@ def run_comparison(df: pd.DataFrame, context_dim: int, config: list[dict] = None
             verbose = verbose,
         )
         agg_results[name] = agg
+        
+        # Ensure no memory leaks/issues for neural algorithms
+        gc.collect()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         # Compute convergence report for this algorithm
         conv = full_convergence_report_multi(agg, **convergence_kwargs)
@@ -244,18 +253,18 @@ def run_comparison(df: pd.DataFrame, context_dim: int, config: list[dict] = None
 
         if verbose:
             print(f"  {name}: final regret = "
-                  f"{agg['mean_final_regret']:.3f} ± {agg['std_final_regret']:.3f} | "
-                  f"match rate = {agg['mean_match_rate']:.3f} | "
+                  f"{agg['mean_final_regret']:.4f} ± {agg['std_final_regret']:.4f} | "
+                  f"match rate = {agg['mean_match_rate']:.4f} | "
                   f"t* = {conv['mean_convergence_step']:.0f}")
 
     return {
         "algorithm_names": algorithm_names,
-        "agg_results": agg_results,
-        "conv_reports": conv_reports,
-        "summaries": summaries,
-        "config": config,
-        "n_trials": n_trials,
-        "context_dim": context_dim,
+        "agg_results":     agg_results,
+        "conv_reports":    conv_reports,
+        "summaries":       summaries,
+        "config":          config,
+        "n_trials":        n_trials,
+        "context_dim":     context_dim,
     }
 
 
@@ -279,13 +288,13 @@ def _build_summary_row(agg: dict, conv: dict) -> dict:
     return {
         "Algorithm":         agg["agent_name"],
         # Primary evaluation metrics
-        "Final Regret":      f"{agg['mean_final_regret']:.3f} ± {agg['std_final_regret']:.3f}",
-        "Reward Rate":       f"{agg['mean_rolling_reward'][-1]:.3f}",
-        "Match Rate":        f"{agg['mean_match_rate']:.3f} ± {agg['std_match_rate']:.3f}",
+        "Final Regret":      f"{agg['mean_final_regret']:.4f} ± {agg['std_final_regret']:.4f}",
+        "Reward Rate":       f"{agg['mean_rolling_reward'][-1]:.4f}",
+        "Match Rate":        f"{agg['mean_match_rate']:.4f} ± {agg['std_match_rate']:.4f}",
         # Convergence metrics
         "Conv. Step t*":     f"{conv['mean_convergence_step']:.0f} ± {conv['std_convergence_step']:.0f}",
-        "Slope Ratio":       f"{conv['mean_slope_ratio']:.3f} ± {conv['std_slope_ratio']:.3f}",
-        "Entropy Drop":      f"{conv['mean_entropy_drop']:.3f} ± {conv['std_entropy_drop']:.3f}",
+        "Slope Ratio":       f"{conv['mean_slope_ratio']:.4f} ± {conv['std_slope_ratio']:.4f}",
+        "Entropy Drop":      f"{conv['mean_entropy_drop']:.4f} ± {conv['std_entropy_drop']:.4f}",
         # Raw floats retained for sorting / plotting
         "_final_regret":     round(agg["mean_final_regret"],4),
         "_reward_rate":      round(float(agg["mean_rolling_reward"][-1]),4),

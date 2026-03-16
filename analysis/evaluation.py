@@ -86,8 +86,8 @@ def _rolling_mean(x: np.ndarray, window: int) -> np.ndarray:
     out = np.empty_like(x, dtype=float)
     for i in range(len(x)):
         # Use min(i+1, window) observations so early steps don't divide by zero
-        start = max(0, i - window + 1)
-        out[i] = x[start : i + 1].mean()
+        start    = max(0, i - window + 1)
+        out[i]   = x[start : i + 1].mean()
     return out
 
 
@@ -121,8 +121,8 @@ def _rolling_entropy(arm_selections: np.ndarray, n_arms: int, window: int) -> np
         window_arms = arm_selections[start : t + 1]
 
         # Count how many times each arm was pulled in this window
-        counts = np.bincount(window_arms, minlength=n_arms).astype(float)
-        probs = counts / counts.sum()
+        counts  = np.bincount(window_arms, minlength=n_arms).astype(float)
+        probs   = counts / counts.sum()
 
         # Shannon entropy: H = -sum p * log(p), with eps guard
         entropy[t] = -np.sum(probs * np.log(probs + eps))
@@ -171,10 +171,12 @@ def run_trial(agent: BaseBandit, env: OfflineBanditEnv, window: int = 500, verbo
     while not env.is_done():
 
         # Get current context and the full arm pool from the environment
-        context, candidate_arms = env.get_context()
+        context, candidate_movie_ids = env.get_context()
+        # Convert movies to arms
+        candidate_arms = [env.arm_to_idx(int(m)) for m in candidate_movie_ids]
 
         # Agent selects an arm index (into the arm pool, not raw movie_id)
-        arm_idx = agent.select_arm(context)
+        arm_idx = agent.select_arm(context, candidate_arms)
 
         # Convert arm index back to movie_id for the environment's step()
         chosen_movie_id = env.idx_to_arm(arm_idx)
@@ -196,7 +198,7 @@ def run_trial(agent: BaseBandit, env: OfflineBanditEnv, window: int = 500, verbo
         if verbose and env._step_idx % 10_000 == 0:
             print(f"  [{agent.name}] step {env._step_idx:,} | "
                   f"matched {env._matched_idx:,} | "
-                  f"match_rate {env.matched_rate():.3f}")
+                  f"match_rate {env.matched_rate():.4f}")
 
     # Convert lists to arrays
     rewards = np.array(rewards_list,  dtype=float)
@@ -300,12 +302,16 @@ def run_multiple_trials(agent_class: type, env: OfflineBanditEnv, n_trials: int 
     -------
     * dict: aggregated results (see module docstring for full key listing)
     """
-    if agent_kwargs is None: agent_kwargs = {}
+    if agent_kwargs is None:
+        agent_kwargs = {}
 
-    if seeds is None: seeds = list(range(n_trials))
+    if seeds is None:
+        seeds = list(range(n_trials))
 
     if len(seeds) != n_trials:
-        raise ValueError(f"len(seeds)={len(seeds)} must equal n_trials={n_trials}.")
+        raise ValueError(
+            f"len(seeds)={len(seeds)} must equal n_trials={n_trials}."
+        )
 
     all_trials = []
 
@@ -331,40 +337,40 @@ def run_multiple_trials(agent_class: type, env: OfflineBanditEnv, n_trials: int 
         [r["cumulative_regret"] for r in all_trials], min_matched
     )
     rolling_rew_mat  = _align_to_length(
-        [r["rolling_reward"] for r in all_trials], min_matched
+        [r["rolling_reward"]    for r in all_trials], min_matched
     )
     arm_entropy_mat  = _align_to_length(
-        [r["arm_entropy"] for r in all_trials], min_matched
+        [r["arm_entropy"]       for r in all_trials], min_matched
     )
 
     # Aggregate statistics
     return {
         # Mean and std of cumulative regret across trials
         "mean_cumulative_regret": cum_regret_mat.mean(axis=0),
-        "std_cumulative_regret": cum_regret_mat.std(axis=0),
+        "std_cumulative_regret":  cum_regret_mat.std(axis=0),
 
         # Mean and std of rolling reward across trials
-        "mean_rolling_reward": rolling_rew_mat.mean(axis=0),
-        "std_rolling_reward": rolling_rew_mat.std(axis=0),
+        "mean_rolling_reward":    rolling_rew_mat.mean(axis=0),
+        "std_rolling_reward":     rolling_rew_mat.std(axis=0),
 
         # Mean and std of arm entropy across trials
-        "mean_arm_entropy": arm_entropy_mat.mean(axis=0),
-        "std_arm_entropy": arm_entropy_mat.std(axis=0),
+        "mean_arm_entropy":       arm_entropy_mat.mean(axis=0),
+        "std_arm_entropy":        arm_entropy_mat.std(axis=0),
 
         # Scalar summaries
-        "mean_match_rate": float(np.mean([r["match_rate"] for r in all_trials])),
-        "std_match_rate": float(np.std( [r["match_rate"] for r in all_trials])),
+        "mean_match_rate":  float(np.mean([r["match_rate"]     for r in all_trials])),
+        "std_match_rate":   float(np.std( [r["match_rate"]     for r in all_trials])),
         "mean_final_regret":float(np.mean([r["cumulative_regret"][-1] for r in all_trials])),
         "std_final_regret": float(np.std( [r["cumulative_regret"][-1] for r in all_trials])),
 
         # Metadata
-        "n_trials": n_trials,
-        "min_matched": min_matched,
-        "agent_name": all_trials[0]["agent_name"],
-        "window": window,
+        "n_trials":         n_trials,
+        "min_matched":      min_matched,
+        "agent_name":       all_trials[0]["agent_name"],
+        "window":           window,
 
         # Raw per-trial dicts — retained for convergence analysis downstream
-        "all_trials": all_trials,
+        "all_trials":       all_trials,
     }
 
 
@@ -382,12 +388,12 @@ def summarize_single_trial(result: dict) -> dict:
             mean_arm_entropy.
     """
     return {
-        "agent_name": result["agent_name"],
-        "final_regret": round(float(result["cumulative_regret"][-1]),4),
-        "mean_reward": round(float(result["rewards"].mean()),4),
-        "match_rate": result["match_rate"],
-        "matched_steps": result["matched_steps"],
-        "total_steps": result["total_steps"],
+        "agent_name":       result["agent_name"],
+        "final_regret":     round(float(result["cumulative_regret"][-1]),4),
+        "mean_reward":      round(float(result["rewards"].mean()),4),
+        "match_rate":       result["match_rate"],
+        "matched_steps":    result["matched_steps"],
+        "total_steps":      result["total_steps"],
         # Final entropy value — low means converged policy
         "mean_arm_entropy": round(float(result["arm_entropy"][-1]),4),
     }
@@ -404,13 +410,13 @@ def summarize_multi_trial(agg: dict) -> dict:
             rolling window), mean_match_rate, std_match_rate, n_trials.
     """
     return {
-    "agent_name": agg["agent_name"],
+    "agent_name":        agg["agent_name"],
     "mean_final_regret": round(agg["mean_final_regret"], 4),
-    "std_final_regret": round(agg["std_final_regret"], 4),
-    "mean_reward": round(float(agg["mean_rolling_reward"][-1]), 4),
-    "mean_match_rate": round(agg["mean_match_rate"], 4),
-    "std_match_rate": round(agg["std_match_rate"], 4),
-    "n_trials": agg["n_trials"],  # keep as int
+    "std_final_regret":  round(agg["std_final_regret"], 4),
+    "mean_reward":       round(float(agg["mean_rolling_reward"][-1]), 4),
+    "mean_match_rate":   round(agg["mean_match_rate"], 4),
+    "std_match_rate":    round(agg["std_match_rate"], 4),
+    "n_trials":          agg["n_trials"],  # keep as int
 }
 
 
@@ -440,28 +446,28 @@ if __name__ == "__main__":
     # Build a small synthetic DataFrame that mimics data_loader output
     import pandas as pd
     synthetic_df = pd.DataFrame({
-        "user_id": rng.integers(1, 50, size=n),
-        "movie_id": rng.choice(arm_pool, size=n),
-        "rating": rng.choice([1, 2, 3, 4, 5], size=n).astype(float),
+        "user_id":   rng.integers(1, 50, size=n),
+        "movie_id":  rng.choice(arm_pool, size=n),
+        "rating":    rng.choice([1, 2, 3, 4, 5], size=n).astype(float),
         "timestamp": np.arange(n),
-        "reward": rng.integers(0, 2, size=n).astype(float),
-        "context": [rng.random(ctx_dim) for _ in range(n)],
+        "reward":    rng.integers(0, 2, size=n).astype(float),
+        "context":   [rng.random(ctx_dim) for _ in range(n)],
     })
 
     env = OfflineBanditEnv(synthetic_df, seed=0, arm_pool=arm_pool)
     print(f"Environment: {env}\n")
 
-    # Single trial
+    # --- Single trial ---
     print("Running single trial with LinUCB...")
-    agent = LinUCB(n_arms=n_arms, context_dim=ctx_dim, alpha=1.0, seed=0)
+    agent  = LinUCB(n_arms=n_arms, context_dim=ctx_dim, alpha=1.0, seed=0)
     result = run_trial(agent, env, window=100, verbose=True)
 
     print(f"\nSingle trial results:")
     print(f"  matched_steps      : {result['matched_steps']}")
     print(f"  total_steps        : {result['total_steps']}")
-    print(f"  match_rate         : {result['match_rate']:.3f}")
-    print(f"  final regret       : {result['cumulative_regret'][-1]:.2f}")
-    print(f"  mean reward        : {result['rewards'].mean():.3f}")
+    print(f"  match_rate         : {result['match_rate']:.4f}")
+    print(f"  final regret       : {result['cumulative_regret'][-1]:.4f}")
+    print(f"  mean reward        : {result['rewards'].mean():.4f}")
     print(f"  rewards shape      : {result['rewards'].shape}")
     print(f"  arm_entropy shape  : {result['arm_entropy'].shape}")
     print(f"  regret_per_step[-1]: {result['regret_per_step'][-1]:.4f}")
@@ -476,7 +482,7 @@ if __name__ == "__main__":
     summary = summarize_single_trial(result)
     print(f"\n  Summary: {summary}")
 
-    # Multi-trial
+    # --- Multi-trial ---
     print("\nRunning 3-trial aggregation with LinUCB...")
     agg = run_multiple_trials(
         LinUCB, env, n_trials=3,
@@ -487,11 +493,11 @@ if __name__ == "__main__":
     print(f"\nMulti-trial results:")
     print(f"  n_trials               : {agg['n_trials']}")
     print(f"  min_matched            : {agg['min_matched']}")
-    print(f"  mean_final_regret      : {agg['mean_final_regret']:.2f} "
-          f"± {agg['std_final_regret']:.2f}")
-    print(f"  mean_match_rate        : {agg['mean_match_rate']:.3f} "
-          f"± {agg['std_match_rate']:.3f}")
-    print(f"  mean_rolling_reward[-1]: {agg['mean_rolling_reward'][-1]:.3f}")
+    print(f"  mean_final_regret      : {agg['mean_final_regret']:.4f} "
+          f"± {agg['std_final_regret']:.4f}")
+    print(f"  mean_match_rate        : {agg['mean_match_rate']:.4f} "
+          f"± {agg['std_match_rate']:.4f}")
+    print(f"  mean_rolling_reward[-1]: {agg['mean_rolling_reward'][-1]:.4f}")
 
     # Check all aggregated arrays have consistent length
     L = agg["min_matched"]

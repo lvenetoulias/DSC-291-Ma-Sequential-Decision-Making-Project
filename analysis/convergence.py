@@ -130,7 +130,8 @@ def compute_regret_slope(cumulative_regret: np.ndarray, start: int, end: int,) -
     * float: estimated slope (regret per matched step) in the window
     """
     segment = cumulative_regret[start:end]
-    if len(segment) < 2: return 0.0
+    if len(segment) < 2:
+        return 0.0
     # x-axis is just the step indices within the window
     x = np.arange(len(segment), dtype=float)
     # np.polyfit degree 1 returns [slope, intercept]
@@ -172,11 +173,11 @@ def compute_regret_slope_ratio(cumulative_regret: np.ndarray, early_fraction: fl
         slope_ratio = late_slope / early_slope
 
     return {
-        "early_slope": early_slope,
-        "late_slope": late_slope,
-        "slope_ratio": slope_ratio,
+        "early_slope":  early_slope,
+        "late_slope":   late_slope,
+        "slope_ratio":  slope_ratio,
         "early_window": (0, early_end),
-        "late_window": (late_start, n),
+        "late_window":  (late_start, n),
     }
 
 
@@ -310,12 +311,12 @@ def full_convergence_report_multi(agg: dict, tolerance: float = 0.01, sustained_
     all_trials = agg["all_trials"]
 
     # Compute per-trial convergence steps
-    conv_steps = convergence_steps_across_trials(
+    conv_steps  = convergence_steps_across_trials(
         all_trials, tolerance=tolerance,
         sustained_window=sustained_window, min_step=min_step,
     )
     # Compute per-trial slope ratios
-    s_ratios = slope_ratios_across_trials(
+    s_ratios    = slope_ratios_across_trials(
         all_trials, early_fraction=early_fraction, late_fraction=late_fraction,
     )
     # Compute per-trial entropy stats
@@ -357,16 +358,16 @@ if __name__ == "__main__":
     from evaluation import run_trial, run_multiple_trials
 
     print("Building synthetic environment for convergence smoke test...\n")
-    rng = np.random.default_rng(0)
-    n = 3000
-    n_arms = 10
-    ctx_dim = 8
+    rng      = np.random.default_rng(0)
+    n        = 3000
+    n_arms   = 10
+    ctx_dim  = 8
     arm_pool = list(range(n_arms))
 
     # Construct a dataset where arm 0 has consistently higher reward,
     # so algorithms that learn should converge toward it over time.
     movie_ids = rng.choice(arm_pool, size=n)
-    rewards = np.where(movie_ids == 0,
+    rewards   = np.where(movie_ids == 0,
                          rng.random(n) > 0.3,   # arm 0: 70% reward
                          rng.random(n) > 0.6)   # others: 40% reward
 
@@ -381,7 +382,7 @@ if __name__ == "__main__":
 
     env = OfflineBanditEnv(synthetic_df, seed=0, arm_pool=arm_pool)
 
-    # Single trial convergence report
+    # --- Single trial convergence report ---
     print("Single trial convergence report (LinUCB):")
     agent  = LinUCB(n_arms=n_arms, context_dim=ctx_dim, alpha=1.0, seed=0)
     result = run_trial(agent, env, window=100)
@@ -401,7 +402,7 @@ if __name__ == "__main__":
     )
     print("\n  Single trial report checks passed ✓")
 
-    # Multi-trial convergence report
+    # --- Multi-trial convergence report ---
     print("\nMulti-trial convergence report (ThompsonSampling, 3 trials):")
     agg = run_multiple_trials(
         ThompsonSampling, env, n_trials=3,
