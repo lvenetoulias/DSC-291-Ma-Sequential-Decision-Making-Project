@@ -8,17 +8,17 @@ Disjoint Linear Upper Confidence Bound (LinUCB) algorithm.
 LinUCB maintains a separate ridge regression model per arm and then selects actions by maximizing an upper
 confidence bound on the predicted reward. The UCB score for an arm a at a time t is given by:
 
-    UCB(a, x) = x^T θ_hat_a    +  alpha * sqrt(x^T A_a^{-1} x)
+    UCB(a, x) = x^T θ_hat_a    +  alpha * sqrt(x^T V_a^{-1} x)
                |_____________|   |___________________________|
                predicted reward        exploration bonus
 
 where:
-    A_a     = lambda * I + sum_{matched t, arm=a} x_t x_t^T   (design matrix)
+    V_a     = lambda * I + sum_{matched t, arm=a} x_t x_t^T   (design matrix)
     b_a     = sum_{matched t, arm=a} r_t x_t                  (reward vector)
-    θ_hat_a = A_a^{-1} b_a                                    (weight estimate)
+    θ_hat_a = V_a^{-1} b_a                                    (weight estimate)
     alpha   = sigma * sqrt(beta_t)                             (exploration scalar)
 
-Benefit of exploration is larger when x lies in a direction that A_a^{-1} has not been compressed (i.e.,
+Benefit of exploration is larger when x lies in a direction that V_a^{-1} has not been compressed (i.e.,
 not properly explored previously). This gives LinUCB its 'optimism in the face of uncertainty' property
 specific to UCB.
 
@@ -32,7 +32,7 @@ WWW 2010.  https://doi.org/10.1145/1772690.1772758
 
 
 # Import dependencies
-from algorithms.base import BaseBandit
+from base import BaseBandit
 import numpy as np
 
 
@@ -85,7 +85,7 @@ class LinUCB(BaseBandit):
     # Core interface
     # ------------------------------------------------------------------
 
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         Select the arm with the highest UCB score.
 
@@ -103,10 +103,14 @@ class LinUCB(BaseBandit):
         arm_idx : int
         """
         x = context.reshape(-1)
-        scores = np.array([self._compute_ucb(a, x) for a in range(self.n_arms)])
+
+        # Restrict to candidate indices if provided, else score all arms
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
+        scores    = np.array([self._compute_ucb(a, x) for a in arms_to_score])
         max_score = np.max(scores)
-        best_arms = np.where(scores == max_score)[0]
-        return int(self.rng.choice(best_arms))
+        best_local = np.where(scores == max_score)[0]
+        # Return the arm index (into self.n_arms space) of the best candidate
+        return int(arms_to_score[self.rng.choice(best_local)])
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
         """
@@ -147,7 +151,7 @@ class LinUCB(BaseBandit):
         """Initialise per-arm parameter arrays."""
         d = self.context_dim
         A_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b = [np.zeros(d) for _ in range(self.n_arms)]
+        b     = [np.zeros(d) for _ in range(self.n_arms)]
         theta = [np.zeros(d) for _ in range(self.n_arms)]
         return A_inv, b, theta
 
@@ -164,7 +168,7 @@ class LinUCB(BaseBandit):
         A_inv = self._A_inv[arm]
 
         exploit = float(x @ theta)
-        bonus = self.alpha * float(np.sqrt(x @ A_inv @ x))
+        bonus   = self.alpha * float(np.sqrt(x @ A_inv @ x))
         return exploit + bonus
 
     @staticmethod
@@ -178,7 +182,7 @@ class LinUCB(BaseBandit):
 
         Cost: O(d^2) matrix-vector products instead of O(d^3) inversion.
         """
-        Ax = A_inv @ x
+        Ax    = A_inv @ x
         denom = 1.0 + float(x @ Ax)
         return A_inv - np.outer(Ax, Ax) / denom
 
@@ -230,9 +234,9 @@ if __name__ == "__main__":
     print("Running LinUCB smoke test...\n")
 
     rng = np.random.default_rng(0)
-    n_arms = 5
+    n_arms      = 5
     context_dim = 8
-    n_steps = 600
+    n_steps     = 1000
 
     # True reward weights per arm — arm 3 is best in this synthetic setting
     true_theta = rng.standard_normal((n_arms, context_dim))
@@ -241,7 +245,7 @@ if __name__ == "__main__":
     agent = LinUCB(n_arms, context_dim, alpha=1.0, lambda_reg=1.0, seed=0)
     print(agent)
 
-    total_reward = 0.0
+    total_reward   = 0.0
     exploit_counts = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
@@ -274,6 +278,6 @@ if __name__ == "__main__":
     bonuses_after = agent.exploration_bonus(0, test_ctx)
 
     print(f"  Exploration bonus arm 0 before extra updates : {bonuses_before:.4f}")
-    print(f"  Exploration bonus arm 0 after  200 updates   : {bonuses_after:.4f}")
+    print(f"  Exploration bonus arm 0 after  {n_steps} updates   : {bonuses_after:.4f}")
     assert bonuses_after < bonuses_before, "Bonus should shrink as arm is observed more."
     print("\nSmoke test passed.")

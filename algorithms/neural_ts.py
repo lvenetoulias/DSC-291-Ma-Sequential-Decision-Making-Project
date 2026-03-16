@@ -12,17 +12,17 @@ Like NeuralUCB, NeuralTS uses the Neural-Linear approximation:
     2. A *Bayesian linear head* is maintained per arm using the embedding
        as the feature vector, with Gaussian posterior:
 
-           theta_a | D  ~  N(mu_a,  sigma^2 * A_a^{-1})
+           theta_a | D  ~  N(mu_a,  sigma^2 * V_a^{-1})
 
        where A_a and mu_a are the same ridge-regression quantities as
        ThompsonSampling and LinUCB, applied to phi(x) instead of x.
 
        
 Main difference from NeuralUCB is in the selection of the arm:
-    - NeuralUCB : argmax_a  [ phi(x)^T mu_a  +  alpha * sqrt(phi(x)^T A_a^{-1} phi(x)) ]
+    - NeuralUCB : argmax_a  [ phi(x)^T mu_a  +  alpha * sqrt(phi(x)^T V_a^{-1} phi(x)) ]
                              (deterministic UCB score)
     - NeuralTS  : argmax_a  phi(x)^T theta_tilde_a,
-                             theta_tilde_a ~ N(mu_a,  sigma^2 * A_a^{-1})
+                             theta_tilde_a ~ N(mu_a,  sigma^2 * V_a^{-1})
                              (stochastic posterior sample)
 
 The stochasticity in the sampling mechanism enables more *deep exploration*: unlike pointwise bonuses in
@@ -41,32 +41,28 @@ updates, and a full refit of all linear neural network head after each retrainin
 
 References
 ----------
-Primary (NeuralTS theory and regret bounds):
-    Zhang, W., Zhou, D., Li, L., & Gu, Q. (2021).
-    Neural Thompson Sampling.
-    ICLR 2021.
-    https://openreview.net/forum?id=tkAtoZkcUnm
-    arXiv: https://arxiv.org/abs/2010.00827
+Zhang, W., Zhou, D., Li, L., & Gu, Q. (2021).
+Neural Thompson Sampling.
+ICLR 2021.
+https://openreview.net/forum?id=tkAtoZkcUnm
+arXiv: https://arxiv.org/abs/2010.00827
 
-NeuralUCB (companion paper, same setting):
-    Zhou, D., Li, L., & Gu, Q. (2020).
-    Neural Contextual Bandits with UCB-based Exploration.
-    Proceedings of the 37th ICML, PMLR 119:11492-11502.
-    https://proceedings.mlr.press/v119/zhou20a.html
-    arXiv: https://arxiv.org/abs/1911.04462
+Zhou, D., Li, L., & Gu, Q. (2020).
+Neural Contextual Bandits with UCB-based Exploration.
+Proceedings of the 37th ICML, PMLR 119:11492-11502.
+https://proceedings.mlr.press/v119/zhou20a.html
+arXiv: https://arxiv.org/abs/1911.04462
 
-Neural-Linear approximation (empirical motivation):
-    Riquelme, C., Tucker, G., & Snoek, J. (2018).
-    Deep Bayesian Bandits Showdown: An Empirical Comparison of Bayesian
-    Deep Networks for Thompson Sampling.
-    ICLR 2018.
-    arXiv: https://arxiv.org/abs/1802.09127
+Riquelme, C., Tucker, G., & Snoek, J. (2018).
+Deep Bayesian Bandits Showdown: An Empirical Comparison of Bayesian
+Deep Networks for Thompson Sampling.
+ICLR 2018.
+arXiv: https://arxiv.org/abs/1802.09127
 
-Deep exploration via posterior sampling (theoretical motivation):
-    Osband, I., Russo, D., & Van Roy, B. (2013).
-    (More) Efficient Reinforcement Learning via Posterior Sampling.
-    NeurIPS 2013.
-    https://proceedings.neurips.cc/paper/2013/hash/6a5889bb0190d0211a991f47bb19a777-Abstract.html
+Osband, I., Russo, D., & Van Roy, B. (2013).
+(More) Efficient Reinforcement Learning via Posterior Sampling.
+NeurIPS 2013.
+https://proceedings.neurips.cc/paper/2013/hash/6a5889bb0190d0211a991f47bb19a777-Abstract.html
 """
 
 # Import dependencies
@@ -139,7 +135,7 @@ class NeuralTS(BaseBandit):
 
     def __init__(self, n_arms: int, context_dim: int, d_emb: int = 32, hidden_dim: int = 64, sigma: float = 1.0,
         lambda_reg: float = 1.0, lr_nn: float = 1e-3, train_every: int = 50, n_epochs: int = 10, warmup_steps: int = 100,
-        batch_size: int = 32, seed: int = 42,):
+        batch_size: int = 32, max_buffer_size: int = 5000, seed: int = 42,):
 
         # Call superconstructor
         _check_torch()
@@ -165,6 +161,7 @@ class NeuralTS(BaseBandit):
         self.n_epochs = n_epochs
         self.warmup_steps = warmup_steps
         self.batch_size = batch_size
+        self.max_buffer_size = max_buffer_size
 
         torch.manual_seed(seed)
 
@@ -189,7 +186,7 @@ class NeuralTS(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         During warmup: select uniformly at random.
         After warmup:  sample one weight vector per arm from the posterior
@@ -211,14 +208,12 @@ class NeuralTS(BaseBandit):
         -------
         * int: the index of the selected arm
         """
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
         if self._in_warmup:
-            return int(self.rng.integers(0, self.n_arms))
-
-        phi = self._embed(context)      # shape (d_emb,)
-        scores = np.array([
-            self._sample_score(a, phi) for a in range(self.n_arms)
-        ])
-        return int(np.argmax(scores))
+            return int(self.rng.choice(arms_to_score))
+        phi    = self._embed(context)
+        scores = np.array([self._sample_score(a, phi) for a in arms_to_score])
+        return int(arms_to_score[np.argmax(scores)])
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
         """
@@ -236,9 +231,16 @@ class NeuralTS(BaseBandit):
         """
         self._base_update(arm)
 
+        # Store in replay buffer
         self._buffer_x.append(context.copy())
         self._buffer_arm.append(arm)
         self._buffer_r.append(reward)
+
+        # Cap buffer to most recent max_buffer_size entries
+        if len(self._buffer_x) > self.max_buffer_size:
+            self._buffer_x   = self._buffer_x[-self.max_buffer_size:]
+            self._buffer_arm = self._buffer_arm[-self.max_buffer_size:]
+            self._buffer_r   = self._buffer_r[-self.max_buffer_size:]
 
         # Transition out of warmup
         if self._in_warmup and self._t >= self.warmup_steps:

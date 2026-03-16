@@ -18,7 +18,7 @@ reweight each particle at every update, avoiding the need to resample from strat
 cost of the sampling at O(J * d^2), via J Sherman-Morrison updates (one per particle), and, thus, is linear
 in J. Formally, at update step t, the j-th particle sees the new observation (x_t, a_t, r_t) with weight
 w_j ~ Poisson(1), independently across particles. Over time, this converges to the standard bootstrap
-distribution, as described by Rubin's Bayesian bootstrap). 
+distribution. 
 
 We select an arm as follows:
     1. Sample one particle j* uniformly at random from {1, ..., J}.
@@ -27,27 +27,23 @@ We select an arm as follows:
 
 For any matched events, we update as follows:
     For each particle j, draw w_j ~ Poisson(1), then apply w_j weighted
-    Sherman-Morrison updates to A_a^{(j)-1} and b_a^{(j)}.
+    Sherman-Morrison updates to V_a^{(j)-1} and b_a^{(j)}.
 
 References
 ----------
-Primary:
     Eckles, D., & Kaptein, M. (2014).
     Thompson Sampling with the Online Bootstrap.
     arXiv: https://arxiv.org/abs/1410.4009
 
-Theory (regret guarantees for linear bootstrap bandits):
     Lu, X., & Van Roy, B. (2017).
     Ensemble Sampling.
     NeurIPS 2017.
     https://proceedings.neurips.cc/paper/2017/hash/9f3de16edcb77b849b5f392f2e0adf16-Abstract.html
 
-Bootstrapped DQN / deep exploration motivation:
     Osband, I., & Van Roy, B. (2015).
     Bootstrapped Thompson Sampling and Deep Exploration.
     arXiv: https://arxiv.org/abs/1507.00300
 
-Empirical comparison and analysis:
     Eckles, D., & Kaptein, M. (2019).
     Bootstrap Thompson Sampling and Sequential Decision Problems
     in the Behavioral Sciences.
@@ -93,7 +89,7 @@ class BootstrapThompson(BaseBandit):
 
         # Set initial state
         self.n_particles = n_particles
-        self.lambda_reg = lambda_reg
+        self.lambda_reg  = lambda_reg
 
         # Per-particle, per-arm parameters.
         # Shape convention:  _A_inv[j][a]  is a (d x d) matrix
@@ -104,7 +100,7 @@ class BootstrapThompson(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         Sample one particle uniformly at random and act greedily under it.
 
@@ -120,12 +116,13 @@ class BootstrapThompson(BaseBandit):
         * int: index of selected arm
         """
         x = context.reshape(-1)
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
 
         # Draw one particle
         j = int(self.rng.integers(0, self.n_particles))
 
         # Greedy arm under this particle's weight vectors
-        scores = np.array([float(x @ self._theta[j][a]) for a in range(self.n_arms)])
+        scores = np.array([float(x @ self._theta[j][a]) for a in arms_to_score])
         return int(np.argmax(scores))
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
@@ -157,7 +154,7 @@ class BootstrapThompson(BaseBandit):
             # observation w times); we apply them sequentially
             for _ in range(w):
                 self._A_inv[j][arm] = self._sherman_morrison(self._A_inv[j][arm], x)
-                self._b[j][arm] += reward * x
+                self._b[j][arm]    += reward * x
 
             # Recompute weight estimate for this particle / arm
             self._theta[j][arm] = self._A_inv[j][arm] @ self._b[j][arm]
@@ -254,7 +251,7 @@ if __name__ == "__main__":
     rng = np.random.default_rng(4)
     n_arms = 5
     context_dim = 8
-    n_steps = 600
+    n_steps = 1000
 
     # True reward weights — arm 1 is best
     true_theta = rng.standard_normal((n_arms, context_dim))
@@ -266,12 +263,12 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts = np.zeros(n_arms, dtype=int)
+    arm_counts   = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen = agent.select_arm(context)
-        p = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
+        chosen  = agent.select_arm(context)
+        p       = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
         reward  = float(rng.random() < p)
         agent.update(chosen, reward, context)
         total_reward += reward

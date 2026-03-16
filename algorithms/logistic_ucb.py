@@ -37,20 +37,17 @@ the epsilon-Greedy algorithm.
 
 References
 ----------
-Primary:
     Faury, L., Abeille, M., Calauzenes, C., & Fercoq, O. (2020).
     Improved Optimistic Algorithms for Logistic Bandits.
     Proceedings of the 37th ICML, PMLR 119:3052-3060.
     https://proceedings.mlr.press/v119/faury20a.html
     arXiv: https://arxiv.org/abs/2002.07530
 
-Supplementary (efficient / jointly optimal variant):
     Faury, L., Abeille, M., Calauzenes, C., & Jun, K.-S. (2022).
     Jointly Efficient and Optimal Algorithms for Logistic Bandits.
     AISTATS 2022, PMLR 151.
     arXiv: https://arxiv.org/abs/2201.01985
 
-Background (GLM bandits, generalises logistic setting):
     Filippi, S., Cappe, O., Garivier, A., & Szepesvári, C. (2010).
     Parametric Bandits: The Generalized Linear Case.
     NeurIPS 2010.
@@ -107,7 +104,7 @@ class LogisticUCB(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         Select the arm with the highest logistic UCB score.
 
@@ -125,7 +122,8 @@ class LogisticUCB(BaseBandit):
         * int: the index of the selected arm
         """
         x = context.reshape(-1)
-        scores = np.array([self._compute_ucb(a, x) for a in range(self.n_arms)])
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
+        scores    = np.array([self._compute_ucb(a, x) for a in arms_to_score])
         max_score = np.max(scores)
         best_arms = np.where(scores == max_score)[0]
         return int(self.rng.choice(best_arms))
@@ -182,7 +180,7 @@ class LogisticUCB(BaseBandit):
     # ------------------------------------------------------------------
     def _init_params(self):
         """Initialise per-arm parameter arrays."""
-        d = self.context_dim
+        d     = self.context_dim
         theta = [np.zeros(d) for _ in range(self.n_arms)]
         H_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
         return theta, H_inv
@@ -196,9 +194,9 @@ class LogisticUCB(BaseBandit):
         """
         UCB score for a single arm: sigma(x^T theta_a)  +  alpha * sqrt(x^T H_a^{-1} x)
         """
-        logit = float(x @ self._theta[arm])
+        logit   = float(x @ self._theta[arm])
         exploit = self._sigmoid(logit)
-        bonus = self.alpha * float(np.sqrt(np.clip(x @ self._H_inv[arm] @ x, 0, None)))
+        bonus   = self.alpha * float(np.sqrt(np.clip(x @ self._H_inv[arm] @ x, 0, None)))
         return exploit + bonus
 
     @staticmethod
@@ -212,7 +210,7 @@ class LogisticUCB(BaseBandit):
         Benefit is not having to recompute full A_inv from stratch at every update step, keeping the
         cost per-step at O(d^2) instead of O(d^3).
         """
-        Ax = A_inv @ x
+        Ax    = A_inv @ x
         denom = 1.0 + float(x @ Ax)
         return A_inv - np.outer(Ax, Ax) / denom
 
@@ -262,11 +260,11 @@ if __name__ == "__main__":
     print(agent)
 
     total_reward = 0.0
-    arm_counts = np.zeros(n_arms, dtype=int)
+    arm_counts   = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen = agent.select_arm(context)
+        chosen  = agent.select_arm(context)
 
         # Binary reward via logistic model
         p = 1.0 / (1.0 + np.exp(-float(context @ true_theta[chosen])))
@@ -294,7 +292,7 @@ if __name__ == "__main__":
         agent.update(0, 1.0, rng.standard_normal(context_dim))
     bonus_after = agent.exploration_bonus(0, test_ctx)
     assert bonus_after < bonus_before, "Bonus should shrink with more data."
-    print(f"  Exploration bonus arm 0 before/after 200 updates: "
+    print(f"  Exploration bonus arm 0 before/after {n_steps} updates: "
           f"{bonus_before:.4f} → {bonus_after:.4f}")
 
     print("\nSmoke test passed.")

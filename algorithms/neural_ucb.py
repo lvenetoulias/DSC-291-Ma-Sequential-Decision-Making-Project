@@ -14,7 +14,7 @@ implementation does the following:
     1. A shared neural network phi(x; w) maps raw context x to a
        d_emb-dimensional embedding (the last hidden layer output).
     2. A *linear* UCB head is placed on top of the embedding:
-           UCB(a, x) = phi(x)^T theta_a  +  alpha * sqrt(phi(x)^T A_a^{-1} phi(x))
+           UCB(a, x) = phi(x)^T theta_a  +  alpha * sqrt(phi(x)^T V_a^{-1} phi(x))
        where A_a and theta_a are the same ridge-regression quantities as
        LinUCB, just applied to the learned embedding rather than raw features.
     3. The network is periodically retrained on the accumulated matched
@@ -36,24 +36,21 @@ the exploration phase (in its random arm selection) to collect enough data befor
 
 References
 ----------
-Primary (NeuralUCB theory):
-    Zhou, D., Li, L., & Gu, Q. (2020).
-    Neural Contextual Bandits with UCB-based Exploration.
-    Proceedings of the 37th ICML, PMLR 119:11492-11502.
-    https://proceedings.mlr.press/v119/zhou20a.html
-    arXiv: https://arxiv.org/abs/1911.04462
+Zhou, D., Li, L., & Gu, Q. (2020).
+Neural Contextual Bandits with UCB-based Exploration.
+Proceedings of the 37th ICML, PMLR 119:11492-11502.
+https://proceedings.mlr.press/v119/zhou20a.html
+arXiv: https://arxiv.org/abs/1911.04462
 
-Neural-Linear approximation:
-    Riquelme, C., Tucker, G., & Snoek, J. (2018).
-    Deep Bayesian Bandits Showdown: An Empirical Comparison of Bayesian
-    Deep Networks for Thompson Sampling.
-    ICLR 2018.
-    arXiv: https://arxiv.org/abs/1802.09127
+Riquelme, C., Tucker, G., & Snoek, J. (2018).
+Deep Bayesian Bandits Showdown: An Empirical Comparison of Bayesian
+Deep Networks for Thompson Sampling.
+ICLR 2018.
+arXiv: https://arxiv.org/abs/1802.09127
 
-Neural-LinUCB variant (deep representation, shallow exploration):
-    Xu, P., Wen, Z., Zhao, H., & Gu, Q. (2020).
-    Neural Contextual Bandits with Deep Representation and Shallow Exploration.
-    arXiv: https://arxiv.org/abs/2012.01780
+Xu, P., Wen, Z., Zhao, H., & Gu, Q. (2020).
+Neural Contextual Bandits with Deep Representation and Shallow Exploration.
+arXiv: https://arxiv.org/abs/2012.01780
 """
 
 # Import dependencies
@@ -168,7 +165,7 @@ class NeuralUCB(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list= None) -> int:
         """
         During warmup: select uniformly at random.
         After warmup:  select arm with highest Neural-Linear UCB score.
@@ -176,12 +173,12 @@ class NeuralUCB(BaseBandit):
         UCB(a, x) = phi(x)^T theta_a  +  alpha * sqrt(phi(x)^T A_a^{-1} phi(x))
         where phi(x) is the neural embedding of x.
         """
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
         if self._in_warmup:
-            return int(self.rng.integers(0, self.n_arms))
-
-        phi = self._embed(context)   # shape (d_emb,)
-        scores = np.array([self._compute_ucb(a, phi) for a in range(self.n_arms)])
-        return int(np.argmax(scores))
+            return int(self.rng.choice(arms_to_score))
+        phi    = self._embed(context)
+        scores = np.array([self._compute_ucb(a, phi) for a in arms_to_score])
+        return int(arms_to_score[np.argmax(scores)])
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
         """

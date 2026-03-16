@@ -9,13 +9,12 @@ The reward model is:
 with a Gaussian prior over the parameter vector:
     theta ~ N(0, lambda^{-1} I)
 
-Given observed data D_{t-1}, Bayes' rule yields a Gaussian posterior
-(equations 3.2.1 – 3.2.2 in the Methods Report):
+Given observed data D_{t-1}, Bayes' rule yields a Gaussian posterior:
 
     theta | D_{t-1}  ~  N(theta_hat_t,  sigma^2 * V_t^{-1})
 
 where:
-    V_t       = lambda * I + sum_{s<t} x_s x_s^T   (design matrix, same as LinUCB)
+    V_t       = lambda * I + sum_{s<t} x_s x_s^T    (design matrix, same as LinUCB)
     theta_hat = V_t^{-1} b_t                        (posterior mean)
     b_t       = sum_{s<t} r_s x_s                   (reward-weighted contexts)
 
@@ -35,7 +34,7 @@ posterior.  V_t^{-1} is maintained via Sherman-Morrison rank-1 updates
 """
 
 import numpy as np
-from algorithms.base import BaseBandit
+from base import BaseBandit
 
 
 class ThompsonSampling(BaseBandit):
@@ -75,8 +74,8 @@ class ThompsonSampling(BaseBandit):
         if lambda_reg <= 0:
             raise ValueError(f"lambda_reg must be positive, got {lambda_reg}.")
 
-        self.sigma = sigma
-        self.sigma2 = sigma ** 2
+        self.sigma      = sigma
+        self.sigma2     = sigma ** 2
         self.lambda_reg = lambda_reg
 
         # Per-arm posterior parameters (disjoint model).
@@ -88,8 +87,7 @@ class ThompsonSampling(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         Sample a weight vector from each arm's posterior and select the arm
         with the highest predicted reward under its sample.
@@ -109,9 +107,8 @@ class ThompsonSampling(BaseBandit):
         arm_idx : int
         """
         x = context.reshape(-1)
-        scores = np.array([
-            self._sample_score(a, x) for a in range(self.n_arms)
-        ])
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
+        scores = np.array([self._sample_score(a, x) for a in arms_to_score])
         return int(np.argmax(scores))
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
@@ -120,7 +117,7 @@ class ThompsonSampling(BaseBandit):
 
         V_a   <- V_a + x x^T      (accumulated via Sherman-Morrison on V_inv)
         b_a   <- b_a + r * x
-        mu_a  <- V_inv_a @ b_a    (recompute posterior mean)
+        mu_a  <- V_a^{-1} @ b_a   (recompute posterior mean)
 
         Parameters
         ----------
@@ -151,10 +148,10 @@ class ThompsonSampling(BaseBandit):
 
     def _init_params(self):
         """Initialise per-arm posterior parameter arrays."""
-        d = self.context_dim
+        d     = self.context_dim
         V_inv = [(1.0 / self.lambda_reg) * np.eye(d) for _ in range(self.n_arms)]
-        b = [np.zeros(d) for _ in range(self.n_arms)]
-        mu = [np.zeros(d) for _ in range(self.n_arms)]
+        b     = [np.zeros(d) for _ in range(self.n_arms)]
+        mu    = [np.zeros(d) for _ in range(self.n_arms)]
         return V_inv, b, mu
 
     def _sample_weights(self, arm: int) -> np.ndarray:
@@ -171,12 +168,12 @@ class ThompsonSampling(BaseBandit):
         -------
         theta_tilde : np.ndarray of shape (context_dim,)
         """
-        mu = self._mu[arm]
-        cov = self.sigma2 * self._V_inv[arm]
+        mu    = self._mu[arm]
+        cov   = self.sigma2 * self._V_inv[arm]
 
         try:
-            L = np.linalg.cholesky(cov)
-            z = self.rng.standard_normal(self.context_dim)
+            L     = np.linalg.cholesky(cov)
+            z     = self.rng.standard_normal(self.context_dim)
             return mu + L @ z
         except np.linalg.LinAlgError:
             # Fallback: add a small jitter and retry
@@ -200,7 +197,7 @@ class ThompsonSampling(BaseBandit):
 
             V_inv_new = V_inv - (V_inv x x^T V_inv) / (1 + x^T V_inv x)
         """
-        Vx = V_inv @ x
+        Vx    = V_inv @ x
         denom = 1.0 + float(x @ Vx)
         return V_inv - np.outer(Vx, Vx) / denom
 
@@ -251,9 +248,9 @@ if __name__ == "__main__":
     print("Running ThompsonSampling smoke test...\n")
 
     rng = np.random.default_rng(1)
-    n_arms = 5
+    n_arms      = 5
     context_dim = 8
-    n_steps = 600
+    n_steps     = 1000
 
     # True reward weights per arm — arm 3 is best (same setup as LinUCB test)
     true_theta = rng.standard_normal((n_arms, context_dim))
@@ -262,14 +259,14 @@ if __name__ == "__main__":
     agent = ThompsonSampling(n_arms, context_dim, sigma=1.0, lambda_reg=1.0, seed=1)
     print(agent)
 
-    total_reward = 0.0
-    arm_counts = np.zeros(n_arms, dtype=int)
+    total_reward   = 0.0
+    arm_counts     = np.zeros(n_arms, dtype=int)
 
     for t in range(n_steps):
         context = rng.standard_normal(context_dim)
-        chosen = agent.select_arm(context)
+        chosen  = agent.select_arm(context)
 
-        p = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
+        p      = float(np.clip(0.5 + 0.1 * (context @ true_theta[chosen]), 0.05, 0.95))
         reward = float(rng.random() < p)
 
         agent.update(chosen, reward, context)
@@ -289,7 +286,7 @@ if __name__ == "__main__":
     var_after = agent.posterior_variance(0, test_ctx)
 
     print(f"\n  Posterior variance arm 0 before extra updates : {var_before:.6f}")
-    print(f"  Posterior variance arm 0 after  300 updates   : {var_after:.6f}")
+    print(f"  Posterior variance arm 0 after {n_steps} updates   : {var_after:.6f}")
     assert var_after < var_before, "Posterior variance should shrink with more data."
 
     # Check Cholesky sampling returns correct shape

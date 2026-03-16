@@ -92,7 +92,7 @@ class EpsilonGreedy(BaseBandit):
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
-    def select_arm(self, context: np.ndarray) -> int:
+    def select_arm(self, context: np.ndarray, candidate_arms: list = None) -> int:
         """
         Select an arm using the epsilon-greedy rule.
             * With probability epsilon: explore — pick a random arm uniformly.
@@ -107,14 +107,14 @@ class EpsilonGreedy(BaseBandit):
         -------
         * int: an index corresponding to the selected arm.
         """
+        arms_to_score = candidate_arms if candidate_arms is not None else list(range(self.n_arms))
         epsilon = self._current_epsilon()
-
         if self.rng.random() < epsilon:
-            # Explore: uniform random arm
-            return int(self.rng.integers(0, self.n_arms))
+            return int(self.rng.choice(arms_to_score))
         else:
-            # Exploit: arm with highest predicted reward
-            return int(self._best_arm(context))
+            x      = context.reshape(-1)
+            scores = np.array([float(self._theta[a] @ x) for a in arms_to_score])
+            return int(arms_to_score[np.argmax(scores)])
 
     def update(self, arm: int, reward: float, context: np.ndarray) -> None:
         """
