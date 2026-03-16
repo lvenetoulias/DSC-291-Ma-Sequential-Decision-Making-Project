@@ -1,30 +1,28 @@
 """
 run_experiments.py
+
 =================
+
 Main execution script for the contextual bandit recommendation experiment.
 
-This script orchestrates the entire pipeline in five sequential phases:
+    Phase 1 — Data Loading: Load the MovieLens 10M dataset, engineer context features, binarize rewards,
+                            and split into train / validation / test sets.
 
-    Phase 1 — Data Loading
-        Load the MovieLens 10M dataset, engineer context features,
-        binarize rewards, and split into train / validation / test sets.
+    Phase 2 — Hyperparameter Selection (Sensitivity on Validation): Sweep each algorithm's key
+                                                                    hyperparameters on the validation
+                                                                    split. Select the best value per
+                                                                    parameter and save sweep results to
+                                                                    disk. These results are reused for
+                                                                    sensitivity figures later.
 
-    Phase 2 — Hyperparameter Selection (Sensitivity on Validation)
-        Sweep each algorithm's key hyperparameters on the validation split.
-        Select the best value per parameter and save sweep results to disk.
-        These results are reused for sensitivity figures later.
+    Phase 3 — Main Comparison (on Test): Run all algorithms with tuned hyperparameters on the test split
+                                         for n_trials independent trials each. Collect evaluation and
+                                         convergence statistics.
 
-    Phase 3 — Main Comparison (on Test)
-        Run all algorithms with tuned hyperparameters on the test split
-        for n_trials independent trials each. Collect evaluation and
-        convergence statistics.
+    Phase 4 — Visualization: Generate all figures (primary comparison, convergence, exploration, robustness,
+                             hyperparameter sensitivity) and save to figures/.
 
-    Phase 4 — Visualization
-        Generate all figures (primary comparison, convergence, exploration,
-        robustness, hyperparameter sensitivity) and save to figures/.
-
-    Phase 5 — Summary
-        Print the final comparison table and export it as a CSV.
+    Phase 5 — Summary: print the final comparison table and export it as a CSV.
 
 Usage
 -----
@@ -56,6 +54,11 @@ Output structure
         summary.csv       — final comparison table
 """
 
+# Add these lines at the very top of run_experiments.py, before any other imports:
+import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+
 import os
 import sys
 import time
@@ -66,9 +69,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Path setup — ensure subfolders are importable
 # ---------------------------------------------------------------------------
-# Project root is the directory containing this script.
-# Subfolders 'algorithms/' and 'analysis/' are made importable here
-# so that all imports in the pipeline scripts resolve correctly.
+# Project root is the directory containing this script
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
@@ -78,7 +79,6 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "analysis"))
 # ---------------------------------------------------------------------------
 # Pipeline imports
 # ---------------------------------------------------------------------------
-
 from data_loading import load_and_prepare
 from bandits_environment  import OfflineBanditEnv
 
@@ -127,6 +127,8 @@ DATA_CONFIG = {
     "movies_path":  "data/ml-10M100K/movies.dat",
 }
 
+# DATA_CONFIG = {"ratings_path": "synthetic_ratings.dat", "movies_path": "synthetic_movies.dat"}
+
 # --- Data split fractions ---
 # The dataset is split temporally: train → val → test.
 # train is used to compute user/item statistics (context features).
@@ -138,7 +140,7 @@ SPLIT_CONFIG = {
     "reward_threshold": 4.0, # rating >= threshold → reward = 1
     "context_method":   "raw",
     "min_user_ratings": 20,  # filter users with fewer interactions
-    "max_arms": 50,          # filter movies to have most common movies
+    "max_arms": 500,         # filter movies to have most common movies
 }
 
 # --- Evaluation settings ---
@@ -146,6 +148,7 @@ EVAL_CONFIG = {
     "n_trials":   5,     # independent trials per algorithm
     "window":     500,   # rolling window for reward smoothing
     "env_seed":   42,    # environment random seed
+    "candidate_size": 25, # size of number of arms to consider
 }
 
 # --- Sensitivity sweep settings ---
@@ -153,15 +156,18 @@ SWEEP_CONFIG = {
     "n_trials":      3,    # trials per hyperparameter value (fewer than main)
     "window":        500,
     # Hyperparameter grids
-    "alpha_values":  [0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
-    "sigma_values":  [0.1, 0.25, 0.5, 1.0, 2.0, 5.0],
-    "lambda_values": [0.01, 0.1, 0.5, 1.0, 2.0, 5.0],
-    "epsilon_values":[0.01, 0.05, 0.1, 0.2, 0.3, 0.5],
+    "alpha_values":  [0.1, 0.5, 1.0, 2.0, 5.0],
+    "sigma_values":  [0.1, 0.5, 1.0, 2.0, 5.0],
+    "lambda_values": [0.01, 0.1, 0.5, 1.0, 2.0],
+    "epsilon_values":[0.01, 0.05, 0.1, 0.2, 0.5],
     "particle_values":[3, 5, 10, 20, 30],
     # Context dimensionality sweep
     "pca_dims":      [2, 5, 10, 15, 20],
     # Reward threshold sweep
-    "thresholds":    [3.0, 3.5, 4.0, 4.5],
+    "thresholds":    [4.0],
+    "sweep_n":          25_000,    # events to use for sweep
+    "neural_sweep_n":   10_000,    # events to use for neural sweep
+    "candidate_size":   10,        # same candidate logic for sweep
 }
 
 # --- Convergence analysis settings ---
@@ -216,7 +222,6 @@ def _section(title: str) -> None:
 # ===========================================================================
 # Phase 1: Data Loading
 # ===========================================================================
-
 def phase1_load_data(args):
     """
     Load the MovieLens 10M dataset and produce three temporally ordered
@@ -229,11 +234,11 @@ def phase1_load_data(args):
 
     Returns
     -------
-    train_df   : pd.DataFrame — training interactions with context and reward
-    val_df     : pd.DataFrame — validation interactions
-    test_df    : pd.DataFrame — test interactions
+    train_df: pd.DataFrame — training interactions with context and reward
+    val_df: pd.DataFrame — validation interactions
+    test_df: pd.DataFrame — test interactions
     context_dim: int          — dimensionality of the context vectors
-    base_rate  : float        — fraction of rewards = 1 in the full dataset
+    base_rate: float        — fraction of rewards = 1 in the full dataset
     """
     _section("Phase 1: Data Loading")
 
@@ -282,13 +287,7 @@ def phase1_load_data(args):
 # ===========================================================================
 # Phase 2: Hyperparameter Selection (Sensitivity on Validation)
 # ===========================================================================
-
-def phase2_hyperparameter_selection(
-    val_df,
-    n_arms: int,
-    context_dim: int,
-    args,
-) -> tuple[dict, dict]:
+def phase2_hyperparameter_selection(val_df, n_arms: int, context_dim: int, args,) -> tuple[dict, dict]:
     """
     Sweep each algorithm's key hyperparameters on the validation split and
     select the best value per parameter.
@@ -298,10 +297,10 @@ def phase2_hyperparameter_selection(
 
     Parameters
     ----------
-    val_df      : pd.DataFrame — validation split
-    n_arms      : int — number of arms in the arm pool
-    context_dim : int — context vector dimensionality
-    args        : argparse.Namespace — command-line arguments
+    val_df: pd.DataFrame — validation split
+    n_arms: int — number of arms in the arm pool
+    context_dim: int — context vector dimensionality
+    args: argparse.Namespace — command-line arguments
 
     Returns
     -------
@@ -336,6 +335,12 @@ def phase2_hyperparameter_selection(
     n_sw     = SWEEP_CONFIG["n_trials"]
     sweep_results = {}
 
+    # Capped subsets for sweep speed and memory safety
+    SWEEP_N        = 100_000
+    NEURAL_SWEEP_N = 50_000
+    val_df_sweep   = val_df.head(SWEEP_N).reset_index(drop=True)
+    val_df_neural  = val_df.head(NEURAL_SWEEP_N).reset_index(drop=True)
+
     # Determine which algorithms to sweep based on --algorithms flag
     algo_filter = set(args.algorithms) if args.algorithms else None
 
@@ -350,6 +355,7 @@ def phase2_hyperparameter_selection(
             alpha_values  = SWEEP_CONFIG["alpha_values"],
             lambda_values = SWEEP_CONFIG["lambda_values"],
             n_trials      = n_sw,
+            candidate_size=SWEEP_CONFIG["candidate_size"],
             verbose       = True,
         )
         print(f"  Done in {time.time()-t0:.1f}s")
@@ -365,6 +371,7 @@ def phase2_hyperparameter_selection(
             sigma_values  = SWEEP_CONFIG["sigma_values"],
             lambda_values = SWEEP_CONFIG["lambda_values"],
             n_trials      = n_sw,
+            candidate_size=SWEEP_CONFIG["candidate_size"],
             verbose       = True,
         )
         print(f"  Done in {time.time()-t0:.1f}s")
@@ -379,21 +386,25 @@ def phase2_hyperparameter_selection(
             context_dim    = context_dim,
             epsilon_values = SWEEP_CONFIG["epsilon_values"],
             n_trials       = n_sw,
+            candidate_size=SWEEP_CONFIG["candidate_size"],
             verbose        = True,
         )
         print(f"  Done in {time.time()-t0:.1f}s")
+
+    
 
     # --- LogisticUCB ---
     if algo_filter is None or "LogisticUCB" in algo_filter:
         print("Sweeping LogisticUCB...")
         t0 = time.time()
         sweep_results["LogisticUCB"] = sweep_logistic_ucb(
-            df            = val_df,
+            df            = val_df_sweep,   # capped
             n_arms        = n_arms,
             context_dim   = context_dim,
             alpha_values  = SWEEP_CONFIG["alpha_values"],
             lambda_values = SWEEP_CONFIG["lambda_values"],
             n_trials      = n_sw,
+            candidate_size=SWEEP_CONFIG["candidate_size"],
             verbose       = True,
         )
         print(f"  Done in {time.time()-t0:.1f}s")
@@ -403,52 +414,62 @@ def phase2_hyperparameter_selection(
         print("Sweeping BootstrapThompson...")
         t0 = time.time()
         sweep_results["BootstrapThompson"] = sweep_bootstrap_thompson(
-            df              = val_df,
+            df              = val_df_sweep,   # capped
             n_arms          = n_arms,
             context_dim     = context_dim,
             particle_values = SWEEP_CONFIG["particle_values"],
             lambda_values   = SWEEP_CONFIG["lambda_values"],
             n_trials        = n_sw,
+            candidate_size=SWEEP_CONFIG["candidate_size"],
             verbose         = True,
         )
         print(f"  Done in {time.time()-t0:.1f}s")
 
-    # Neural algorithms use the same grids as their linear counterparts;
-    # we do not sweep their network architecture hyperparameters here
-    # (d_emb, hidden_dim) as those are fixed by the Neural-Linear design.
+    # Neural algorithms: capped at NEURAL_SWEEP_N to prevent memory blowup,
+    # with reduced architecture and less frequent retraining for sweep stability.
     if _NEURAL_AVAILABLE:
         if algo_filter is None or "NeuralUCB" in algo_filter:
-            print("Sweeping NeuralUCB (alpha only — architecture fixed)...")
+            print("Sweeping NeuralUCB (alpha only — capped at 50k events)...")
             from analysis.sensitivity import sweep_hyperparameter
             t0 = time.time()
             sweep_results["NeuralUCB"] = {
                 "alpha": sweep_hyperparameter(
-                    NeuralUCB, val_df, "alpha",
+                    NeuralUCB, val_df_neural, "alpha",   # capped
                     SWEEP_CONFIG["alpha_values"],
                     fixed_kwargs={
-                        "n_arms": n_arms, "context_dim": context_dim,
-                        "lambda_reg": 1.0, "d_emb": 32, "hidden_dim": 64,
-                        "warmup_steps": 200, "train_every": 100,
+                        "n_arms":        n_arms,
+                        "context_dim":   context_dim,
+                        "lambda_reg":    1.0,
+                        "d_emb":         16,      # reduced from 32
+                        "hidden_dim":    32,      # reduced from 64
+                        "warmup_steps":  500,      # reduced from 500
+                        "train_every":   200,     # retrain less often
+                        "max_buffer_size": 2000,  # cap replay buffer
                     },
-                    n_trials=n_sw, verbose=True,
+                    n_trials=n_sw,candidate_size=SWEEP_CONFIG["candidate_size"], verbose=True,
                 )
             }
             print(f"  Done in {time.time()-t0:.1f}s")
 
         if algo_filter is None or "NeuralTS" in algo_filter:
-            print("Sweeping NeuralTS (sigma only — architecture fixed)...")
+            print("Sweeping NeuralTS (sigma only — capped at 50k events)...")
             from analysis.sensitivity import sweep_hyperparameter
             t0 = time.time()
             sweep_results["NeuralTS"] = {
                 "sigma": sweep_hyperparameter(
-                    NeuralTS, val_df, "sigma",
+                    NeuralTS, val_df_neural, "sigma",    # capped
                     SWEEP_CONFIG["sigma_values"],
                     fixed_kwargs={
-                        "n_arms": n_arms, "context_dim": context_dim,
-                        "lambda_reg": 1.0, "d_emb": 32, "hidden_dim": 64,
-                        "warmup_steps": 200, "train_every": 100,
+                        "n_arms":        n_arms,
+                        "context_dim":   context_dim,
+                        "lambda_reg":    1.0,
+                        "d_emb":         16,
+                        "hidden_dim":    32,
+                        "warmup_steps":  500,
+                        "train_every":   200,
+                        "max_buffer_size": 2000,
                     },
-                    n_trials=n_sw, verbose=True,
+                    n_trials=n_sw, candidate_size=SWEEP_CONFIG["candidate_size"], verbose=True,
                 )
             }
             print(f"  Done in {time.time()-t0:.1f}s")
@@ -470,14 +491,7 @@ def phase2_hyperparameter_selection(
 # ===========================================================================
 # Phase 3: Main Comparison (on Test)
 # ===========================================================================
-
-def phase3_main_comparison(
-    test_df,
-    n_arms: int,
-    context_dim: int,
-    best_params: dict,
-    args,
-) -> dict:
+def phase3_main_comparison(test_df, n_arms: int, context_dim: int, best_params: dict, args,) -> dict:
     """
     Run all algorithms with tuned hyperparameters on the test split for
     n_trials independent trials each.
@@ -489,11 +503,11 @@ def phase3_main_comparison(
 
     Parameters
     ----------
-    test_df     : pd.DataFrame — test split
-    n_arms      : int
-    context_dim : int
-    best_params : dict — output of select_best_hyperparameters()
-    args        : argparse.Namespace
+    test_df: pd.DataFrame — test split
+    n_arms: int
+    context_dim: int
+    best_params: dict — output of select_best_hyperparameters()
+    args: argparse.Namespace
 
     Returns
     -------
@@ -525,7 +539,7 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "epsilon":     _p("EpsilonGreedy", "epsilon",  0.1),
+                "epsilon":     _p("EpsilonGreedy", "epsilon",  0.5),
                 "schedule":    _p("EpsilonGreedy", "schedule", "fixed"),
                 "lambda_reg":  _p("EpsilonGreedy", "lambda_reg", 1.0),
             },
@@ -539,7 +553,7 @@ def phase3_main_comparison(
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
                 "alpha":       _p("LinUCB", "alpha",      2.0),
-                "lambda_reg":  _p("LinUCB", "lambda_reg", 0.25),
+                "lambda_reg":  _p("LinUCB", "lambda_reg", 1.0),
             },
         })
 
@@ -550,8 +564,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "sigma":       _p("ThompsonSampling", "sigma",      2.0),
-                "lambda_reg":  _p("ThompsonSampling", "lambda_reg", 0.25),
+                "sigma":       _p("ThompsonSampling", "sigma",      5.0),
+                "lambda_reg":  _p("ThompsonSampling", "lambda_reg", 0.5),
             },
         })
 
@@ -562,8 +576,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":      n_arms,
                 "context_dim": context_dim,
-                "alpha":       _p("LogisticUCB", "alpha",      2.0),
-                "lambda_reg":  _p("LogisticUCB", "lambda_reg", 0.25),
+                "alpha":       _p("LogisticUCB", "alpha",      1.0),
+                "lambda_reg":  _p("LogisticUCB", "lambda_reg", 0.01),
             },
         })
 
@@ -574,8 +588,8 @@ def phase3_main_comparison(
             "kwargs": {
                 "n_arms":       n_arms,
                 "context_dim":  context_dim,
-                "n_particles":  _p("BootstrapThompson", "n_particles", 10),
-                "lambda_reg":   _p("BootstrapThompson", "lambda_reg",  1.0),
+                "n_particles":  _p("BootstrapThompson", "n_particles", 20),
+                "lambda_reg":   _p("BootstrapThompson", "lambda_reg",  0.01),
             },
         })
 
@@ -587,11 +601,11 @@ def phase3_main_comparison(
                 "kwargs": {
                     "n_arms":        n_arms,
                     "context_dim":   context_dim,
-                    "alpha":         _p("NeuralUCB", "alpha",      1.0),
+                    "alpha":         _p("NeuralUCB", "alpha",      2.0),
                     "lambda_reg":    _p("NeuralUCB", "lambda_reg", 1.0),
                     "d_emb":         16,    # reduced from 32
                     "hidden_dim":    32,    # reduced from 64
-                    "warmup_steps":  50,    # reduced from 200
+                    "warmup_steps":  200,    # reduced from 200
                     "train_every":   200,   # retrain less frequently
                     "n_epochs":      5,     # fewer epochs per retrain
                     "batch_size":    64,
@@ -610,8 +624,11 @@ def phase3_main_comparison(
                     "lambda_reg":    _p("NeuralTS", "lambda_reg", 1.0),
                     "d_emb":         16,
                     "hidden_dim":    32,
-                    "warmup_steps":  50,
-                    "train_every":   200,
+                    "warmup_steps":  200,
+                    "train_every":   500,
+                    "n_epochs":      5,     # fewer epochs per retrain
+                    "batch_size":    64,
+                    "max_buffer_size": 2000,
                 },
             })
 
@@ -626,6 +643,7 @@ def phase3_main_comparison(
         n_trials           = EVAL_CONFIG["n_trials"],
         window             = EVAL_CONFIG["window"],
         env_seed           = EVAL_CONFIG["env_seed"],
+        candidate_size     = EVAL_CONFIG["candidate_size"],
         convergence_kwargs = CONVERGENCE_CONFIG,
         verbose            = True,
     )
@@ -640,16 +658,8 @@ def phase3_main_comparison(
 # ===========================================================================
 # Phase 4: Visualization
 # ===========================================================================
-
-def phase4_visualization(
-    results: dict,
-    sweep_results: dict,
-    test_df,
-    n_arms: int,
-    context_dim: int,
-    base_rate: float,
-    args,
-) -> None:
+def phase4_visualization(results: dict, sweep_results: dict, test_df, n_arms: int, context_dim: int,
+    base_rate: float, args,) -> None:
     """
     Generate and save all figures.
 
@@ -658,13 +668,13 @@ def phase4_visualization(
 
     Parameters
     ----------
-    results      : dict — output of compare.run_comparison()
+    results: dict — output of compare.run_comparison()
     sweep_results: dict — output of the validation hyperparameter sweeps
-    test_df      : pd.DataFrame — test split (used for robustness sweeps)
-    n_arms       : int
-    context_dim  : int
-    base_rate    : float — dataset reward rate for reference lines
-    args         : argparse.Namespace
+    test_df: pd.DataFrame — test split (used for robustness sweeps)
+    n_arms: int
+    context_dim: int
+    base_rate: float — dataset reward rate for reference lines
+    args: argparse.Namespace
     """
     _section("Phase 4: Visualization")
     set_style()
@@ -694,22 +704,25 @@ def phase4_visualization(
 
     fig = plot_arm_entropy(results, log_x=True)
     fig.savefig(f"{DIRS['convergence']}/arm_entropy.png",
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    fig = plot_entropy_reward_joint(results)
-    fig.savefig(f"{DIRS['convergence']}/entropy_reward_joint.png",
-                dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    # One figure per algorithm for entropy/reward joint plot
+    joint_figs = plot_entropy_reward_joint(results)
+    for name, fig in joint_figs:
+        safe_name = name.replace(" ", "_").lower()
+        fig.savefig(f"{DIRS['convergence']}/entropy_reward_{safe_name}.png",
+                    dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
     fig = plot_convergence_steps(results)
     fig.savefig(f"{DIRS['convergence']}/convergence_steps.png",
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     fig = plot_regret_slope_ratio(results)
     fig.savefig(f"{DIRS['convergence']}/regret_slope_ratio.png",
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     print("  Saved: convergence/*.png")
@@ -719,12 +732,12 @@ def phase4_visualization(
 
     fig = plot_arm_pull_heatmap(results, top_k=20)
     fig.savefig(f"{DIRS['exploration']}/arm_pull_heatmap.png",
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     fig = plot_exploration_bonus_decay(results)
     fig.savefig(f"{DIRS['exploration']}/exploration_bonus_decay.png",
-                dpi=150, bbox_inches="tight")
+                dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     print("  Saved: exploration/*.png")
@@ -732,7 +745,7 @@ def phase4_visualization(
     # --- Group 4: Robustness plots ---
     # These require additional sweeps on the test split.
     # Skip in debug mode to save time.
-    if not args.debug:
+    """if not args.debug:
         print("Generating Group 4: Robustness plots...")
 
         # Reward threshold sensitivity
@@ -783,7 +796,7 @@ def phase4_visualization(
 
         print("  Saved: robustness/*.png")
     else:
-        print("  [Debug mode] Skipping Group 4 robustness plots.")
+        print("  [Debug mode] Skipping Group 4 robustness plots.")"""
 
     # --- Group 5: Hyperparameter sensitivity plots ---
     # Use the validation sweep results already computed in Phase 2.
@@ -810,14 +823,13 @@ def phase4_visualization(
 # ===========================================================================
 # Phase 5: Summary
 # ===========================================================================
-
 def phase5_summary(results: dict) -> None:
     """
     Print the final comparison table to stdout and export it as a CSV.
 
     Parameters
     ----------
-    results : dict — output of compare.run_comparison()
+    results: dict — output of compare.run_comparison()
     """
     _section("Phase 5: Summary")
 
@@ -833,7 +845,6 @@ def phase5_summary(results: dict) -> None:
 # ===========================================================================
 # Entry point
 # ===========================================================================
-
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -891,13 +902,13 @@ def main():
     # In debug mode, subsample each split to keep runtimes short
     if args.debug:
         from bandits_environment import subsample_env
-        DEBUG_N = 50000
+        DEBUG_N = 2_000_000
         print(f"\n[Debug] Subsampling each split to {DEBUG_N:,} events.")
         train_df = train_df.head(DEBUG_N).reset_index(drop=True)
         val_df   = val_df.head(DEBUG_N // 5).reset_index(drop=True)
         test_df  = test_df.head(DEBUG_N // 5).reset_index(drop=True)
         # Reduce trial count for faster debugging
-        EVAL_CONFIG["n_trials"]   = 2
+        EVAL_CONFIG["n_trials"]   = 3
         SWEEP_CONFIG["n_trials"]  = 1
 
     # Determine arm pool from the full dataset (all unique movie_ids in test)

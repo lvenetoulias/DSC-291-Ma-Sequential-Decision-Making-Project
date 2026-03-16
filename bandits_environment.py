@@ -82,10 +82,12 @@ class OfflineBanditEnv:
                 movie_ids seen in df
     """
 
-    def __init__(self, df: pd.DataFrame, seed: int = 42, shuffle: bool = False, arm_pool: Optional[list] = None,):
+    def __init__(self, df: pd.DataFrame, seed: int = 42, shuffle: bool = False, arm_pool: Optional[list] = None, candidate_size=None,):
         self._df_original = df.reset_index(drop=True)
         self._seed = seed
         self._shuffle = shuffle
+        self.candidate_size = candidate_size
+        self.rng = np.random.default_rng(self._seed)
 
         # Build the canonical arm set
         if arm_pool is not None:
@@ -155,9 +157,24 @@ class OfflineBanditEnv:
         if self.is_done():
             raise StopIteration("Environment stream is exhausted. Call reset().")
 
-        row = self._df.iloc[self._cursor]
-        context = row["context"]  # np.ndarray, stored by data_loader
-        return context, self.arm_pool
+        row        = self._df.iloc[self._step_idx]
+        context    = np.array(row["context"], dtype=float)
+        logged_arm = int(row["movie_id"])
+
+        # Original behavior
+        if self.candidate_size is None or self.candidate_size >= len(self.arm_pool):
+            return context, [int(a) for a in self.arm_pool]
+
+        # Small candidate set: logged arm + (candidate_size - 1) random decoys
+        other_arms = [a for a in self.arm_pool if a != logged_arm]
+        decoys     = self.rng.choice(
+            other_arms,
+            size=min(self.candidate_size - 1, len(other_arms)),
+            replace=False,
+        )
+        candidates = [logged_arm] + [int(d) for d in decoys]  # cast decoys too
+        self.rng.shuffle(candidates)
+        return context, candidates
 
     def step(self, chosen_arm: int) -> StepResult:
         """
@@ -333,7 +350,7 @@ if __name__ == "__main__":
     print("Running quick OfflineBanditEnv smoke test with synthetic data...\n")
 
     rng = np.random.default_rng(0)
-    n = 1000
+    n = 200
     arm_pool = list(range(10))  # 10 fake movie ids
 
     synthetic_df = pd.DataFrame({

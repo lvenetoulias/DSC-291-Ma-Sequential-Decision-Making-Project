@@ -283,53 +283,54 @@ def plot_arm_entropy(results: dict, log_x: bool = True, figsize: tuple = (10, 6)
     return fig
 
 
-def plot_entropy_reward_joint(results: dict, algorithm_names: list = None, log_x: bool = True, figsize: tuple = (14, 5),) -> plt.Figure:
+def plot_entropy_reward_joint(results: dict, algorithm_names: list = None, log_x: bool = True,
+    figsize: tuple = (8, 5), ) -> list[plt.Figure]:
     """
-    For each algorithm, plot rolling reward (left y-axis) and arm entropy (right y-axis, inverted so 'more
-    converged' is visually up on both sides) on a shared x-axis. This dual-axis plot makes the relationship
-    between falling entropy and rising reward directly visible — the signature of a well-functioning
-    contextual bandit.
+    For each algorithm, produce a separate figure showing rolling reward
+    (left y-axis) and arm selection entropy (right y-axis, inverted so
+    'more converged' is visually up on both sides) on a shared x-axis.
 
-    Parameters
-    ----------
-    * results: output of compare.run_comparison()
-    * algorithm_names: subset of algorithms to plot; defaults to all algorithms in results
+    Returns a list of (name, fig) tuples, one per algorithm.
     """
-    if algorithm_names is None: algorithm_names = results["algorithm_names"]
+    if algorithm_names is None:
+        algorithm_names = results["algorithm_names"]
 
-    n_algo = len(algorithm_names)
-    fig, axes = plt.subplots(1, n_algo, figsize=figsize, sharey=False)
+    figures = []
 
-    # Handle single-algorithm case
-    if n_algo == 1:
-        axes = [axes]
-
-    for ax, name in zip(axes, algorithm_names):
-        agg = results["agg_results"][name]
+    for name in algorithm_names:
+        agg   = results["agg_results"][name]
         mean_rew = agg["mean_rolling_reward"]
         mean_ent = agg["mean_arm_entropy"]
-        x = np.arange(1, len(mean_rew) + 1)
+        x     = np.arange(1, len(mean_rew) + 1)
         color = _get_color(name)
 
+        fig, ax = plt.subplots(figsize=figsize)
+
         # Left axis: rolling reward
-        ax.plot(x, mean_rew, color=color, linewidth=2, label="Reward")
-        ax.set_ylabel("Rolling reward", color=color)
+        ax.plot(x, mean_rew, color=color, linewidth=2, label="Rolling reward")
+        ax.set_ylabel("Rolling average reward", color=color, fontsize=11)
         ax.tick_params(axis="y", labelcolor=color)
+        ax.set_xlabel("Matched events (log scale)" if log_x else "Matched events")
+        ax.set_title(f"{name}: Reward vs. Entropy", fontsize=12)
         if log_x:
             ax.set_xscale("log")
-        ax.set_xlabel("Matched events")
-        ax.set_title(name)
 
-        # Right axis: entropy (inverted — lower entropy is "up")
+        # Right axis: entropy (inverted)
         ax2 = ax.twinx()
-        ax2.plot(x, mean_ent, color="grey", linewidth=1.5, linestyle="--", label="Entropy")
-        ax2.invert_yaxis()   # invert so "converged" (low entropy) is visually up
-        ax2.set_ylabel("Arm entropy (inverted)", color="grey")
+        ax2.plot(x, mean_ent, color="grey", linewidth=1.5,
+                 linestyle="--", label="Arm entropy")
+        ax2.set_ylabel("Arm selection entropy", color="grey", fontsize=11)
         ax2.tick_params(axis="y", labelcolor="grey")
 
-    fig.suptitle("Reward vs. Entropy: Exploration–Exploitation Dynamics", fontsize=13, y=1.02)
-    fig.tight_layout()
-    return fig
+        # Combined legend
+        lines  = ax.get_lines() + ax2.get_lines()
+        labels = [l.get_label() for l in lines]
+        ax.legend(lines, labels, fontsize=9)
+
+        fig.tight_layout()
+        figures.append((name, fig))
+
+    return figures
 
 
 def plot_convergence_steps(results: dict, figsize: tuple = (9, 5), title: str = "Convergence Step $t^*$ by Algorithm",) -> plt.Figure:
